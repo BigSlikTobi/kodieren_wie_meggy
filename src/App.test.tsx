@@ -59,8 +59,49 @@ describe('Kodierpfad prototype', () => {
     await user.click(screen.getByRole('button', { name: /Weiter/i }))
     await user.click(screen.getByRole('button', { name: /Fall analysieren/i }))
 
-    const stored = JSON.parse(localStorage.getItem('kodierpfad-demo-v2') ?? '{}') as { cases?: unknown[] }
+    const stored = JSON.parse(localStorage.getItem('kodierpfad-demo-v3') ?? '{}') as { cases?: unknown[] }
     expect(stored.cases).toHaveLength(1)
+  })
+
+  it('leitet eine fachfremde gruppierungsrelevante Frage ins Kodierkonsil', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await user.click(screen.getByRole('button', { name: /Fall analysieren/i }))
+
+    expect(screen.getByText('Geführte Eigenprüfung')).toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText(/Fachkenntnis für Hauptdiagnose/i), 'fremd')
+    expect(screen.getByText('Menschliches Kodierkonsil')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^Kodierkonsil$/i }))
+    expect(screen.getByRole('heading', { name: 'Kodierkonsil' })).toBeInTheDocument()
+    expect(screen.getByText(/Vollständiger Fallkontext wird geteilt/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Konsil anfordern/i }))
+    expect(screen.getByText(/Simulierte Expertenantwort/i)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Konsilergebnis übernehmen/i }))
+    await waitFor(() => expect(screen.getByText(/Konsil abgeschlossen: bestätigt/i)).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: 'Schließen' }))
+    await waitFor(() => expect(screen.getAllByText(/Iteration 2/i).length).toBeGreaterThan(0))
+  })
+
+  it('nutzt den Wiki-Chat nur als Wissenshilfe und löst keine Fallentscheidung', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await user.click(screen.getByRole('button', { name: /Fall analysieren/i }))
+
+    await user.click(screen.getByRole('button', { name: /Palliativmedizinische Komplexbehandlung ausschließen/i }))
+    expect(screen.getByText('Wiki-Chat zur Einordnung')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Wiki fragen/i }))
+    await user.type(screen.getByLabelText(/Frage an den Wiki-Chat/i), 'Welche Mindestmerkmale sind hier grundsätzlich wichtig?')
+    await user.click(screen.getByRole('button', { name: /Senden/i }))
+
+    expect(screen.getByText(/ersetzt keinen Fallnachweis/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Schließen' }))
+    expect(screen.getByRole('button', { name: /Palliativmedizinische Komplexbehandlung ausschließen/i })).toHaveTextContent('Wahrscheinlich')
   })
 
   it('erlaubt die manuelle Korrektur von Typik und Schwierigkeit', async () => {

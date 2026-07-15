@@ -15,15 +15,19 @@ import {
   History,
   Info,
   LockKeyhole,
+  MessageCircle,
   Play,
   Plus,
   RotateCw,
   Sparkles,
   Stethoscope,
+  UserRoundCheck,
+  Users,
   X,
 } from 'lucide-react'
 import type { GrouperClient } from '../services/grouper'
-import type { AppData, CodingCase, EvidenceStatus, HospitalProfile } from '../types'
+import type { AppData, CaseDecision, CodingCase, CodingConsultation, EvidenceStatus, HospitalProfile } from '../types'
+import { CollaborationDrawer } from './CollaborationDrawer'
 
 interface CaseCockpitProps {
   codingCase: CodingCase
@@ -47,6 +51,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
   const [runningDecision, setRunningDecision] = useState<string>()
   const [showAllDocuments, setShowAllDocuments] = useState(false)
   const [finalOpen, setFinalOpen] = useState(codingCase.status === 'abgeschlossen')
+  const [collaboration, setCollaboration] = useState<{ mode: 'consult' | 'wiki'; decisionId: string }>()
 
   const hospital = hospitals.find((item) => item.id === codingCase.hospitalId)
   const profile = hospital?.profiles.find((item) => item.siteId === codingCase.siteId && item.year === codingCase.year)
@@ -99,6 +104,74 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
     })
   }
 
+  const setDecisionKnowledge = (decisionId: string, knowledge: CaseDecision['knowledge']) => {
+    mutateCase({
+      ...codingCase,
+      decisions: codingCase.decisions.map((decision) => decision.id === decisionId ? { ...decision, knowledge } : decision),
+    })
+  }
+
+  const createConsultation = (decisionId: string, input: Pick<CodingConsultation, 'specialty' | 'question' | 'expert' | 'priority'>) => {
+    mutateCase({
+      ...codingCase,
+      consultations: [
+        ...codingCase.consultations,
+        {
+          id: `consult-${Date.now()}`,
+          decisionId,
+          ...input,
+          status: 'angefragt',
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    })
+  }
+
+  const completeConsultation = async (consultationId: string, result: NonNullable<CodingConsultation['result']>, finding: string) => {
+    const consultation = codingCase.consultations.find((item) => item.id === consultationId)
+    if (!consultation) return
+    setRunningDecision(consultation.decisionId)
+    const updatedCase: CodingCase = {
+      ...codingCase,
+      consultations: codingCase.consultations.map((item) => item.id === consultationId ? { ...item, status: 'abgeschlossen', result, finding } : item),
+      decisions: codingCase.decisions.map((decision) => decision.id === consultation.decisionId ? {
+        ...decision,
+        status: result === 'bestätigt' ? 'belegt' : result === 'geändert' ? 'entscheidung' : 'ungeklärt',
+        resolution: `Kodierkonsil ${consultation.specialty}: ${result}. ${finding}`,
+      } : decision),
+    }
+    mutateCase(updatedCase)
+    if (result === 'bestätigt') {
+      const newRun = await grouperClient.group(updatedCase, `Konsil ${consultation.specialty}`)
+      mutateCase({ ...updatedCase, grouperRuns: [...updatedCase.grouperRuns, newRun] })
+    }
+    setRunningDecision(undefined)
+  }
+
+  const sendWikiMessage = (decisionId: string, text: string) => {
+    const now = new Date().toISOString()
+    const userMessage = { id: `wiki-user-${Date.now()}`, author: 'Kodierfachkraft' as const, text, createdAt: now }
+    const assistantMessage = {
+      id: `wiki-assistant-${Date.now() + 1}`,
+      author: 'Wiki-Assistent' as const,
+      text: 'Der Wiki-Hinweis ordnet den Begriff und die Regel ein. Er ersetzt keinen Fallnachweis. Bei gruppierungsrelevanter Unsicherheit bleibt ein menschliches Kodierkonsil erforderlich.',
+      createdAt: now,
+    }
+    const existing = codingCase.wikiThreads.find((thread) => thread.decisionId === decisionId)
+    mutateCase({
+      ...codingCase,
+      wikiThreads: existing
+        ? codingCase.wikiThreads.map((thread) => thread.id === existing.id ? { ...thread, messages: [...thread.messages, userMessage, assistantMessage] } : thread)
+        : [...codingCase.wikiThreads, {
+            id: `wiki-${Date.now()}`,
+            decisionId,
+            title: codingCase.decisions.find((decision) => decision.id === decisionId)?.title ?? 'Wissensfrage',
+            messages: [userMessage, assistantMessage],
+            createdAt: now,
+          }],
+    })
+  }
+
   const resolveDecision = async (decisionId: string, mode: 'belegt' | 'ausgeschlossen', fileName?: string) => {
     setRunningDecision(decisionId)
     const decision = codingCase.decisions.find((item) => item.id === decisionId)
@@ -146,7 +219,13 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
           <h1>{codingCase.label}</h1>
           <p>{hospital?.name} · {profile?.siteName} · Regelpaket {codingCase.year}</p>
         </div>
-        <button className="button secondary" type="button" onClick={onNewCase}><Plus aria-hidden="true" /> Neuer Fall</button>
+        <div className="case-actions">
+          <div className="collaboration-counts">
+            <span><Users aria-hidden="true" /> {codingCase.consultations.filter((item) => item.status !== 'abgeschlossen').length} aktive Konsile</span>
+            <span><MessageCircle aria-hidden="true" /> {codingCase.wikiThreads.length} Wiki-Themen</span>
+          </div>
+          <button className="button secondary" type="button" onClick={onNewCase}><Plus aria-hidden="true" /> Neuer Fall</button>
+        </div>
       </div>
 
       <section className="workflow-progress" aria-label={`Arbeitsfortschritt ${progress} Prozent`}>
@@ -267,12 +346,13 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
               {orderedDecisions.map((decision) => {
                 const selected = activeDecision === decision.id
                 const resolved = ['belegt', 'ausgeschlossen'].includes(decision.status)
+                const route = getCollaborationRoute(decision)
                 return (
                   <article className={`decision-item ${selected ? 'selected' : ''}`} key={decision.id}>
                     <button className="decision-summary" type="button" aria-expanded={selected} onClick={() => setActiveDecision(selected ? undefined : decision.id)}>
                       <span className={`impact-marker impact-${decision.impact}`}><span className="sr-only">Auswirkung {decision.impact}</span></span>
                       <span className="decision-copy">
-                        <span className="decision-meta"><span className={`status-pill status-${decision.status}`}>{statusLabels[decision.status]}</span>{decision.required && <span>Pflichtprüfung</span>}<span>Auswirkung {decision.impact}</span></span>
+                        <span className="decision-meta"><span className={`status-pill status-${decision.status}`}>{statusLabels[decision.status]}</span>{decision.required && <span>Pflichtprüfung</span>}<span>Gruppierung {decision.groupingRelevance}</span><span>Auswirkung {decision.impact}</span></span>
                         <strong>{decision.title}</strong>
                         <small>{decision.effect}</small>
                       </span>
@@ -284,14 +364,33 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
                         <div className="requested-doc"><FileUp aria-hidden="true" /><span><strong>Benötigt:</strong> {decision.requestedDocument}</span></div>
                         {decision.resolution && <div className="resolution"><Check aria-hidden="true" />{decision.resolution}</div>}
                         {!resolved && (
-                          <div className="button-row">
-                            <label className={`button primary ${runningDecision === decision.id ? 'disabled' : ''}`}>
-                              {runningDecision === decision.id ? <RotateCw className="spin" aria-hidden="true" /> : <FileUp aria-hidden="true" />}
-                              {runningDecision === decision.id ? 'Grouper läuft …' : 'Nachweis hochladen'}
-                              <input className="sr-only" type="file" disabled={runningDecision === decision.id} onChange={(event) => handleEvidenceUpload(decision.id, event.target.files)} />
-                            </label>
-                            {!decision.required && <button className="button secondary" type="button" disabled={Boolean(runningDecision)} onClick={() => void resolveDecision(decision.id, 'ausgeschlossen')}><X aria-hidden="true" /> Ausschließen</button>}
-                          </div>
+                          <>
+                            <div className={`routing-box route-${route.kind}`}>
+                              <div className="routing-copy">
+                                {route.kind === 'consult' ? <Stethoscope aria-hidden="true" /> : route.kind === 'wiki' ? <MessageCircle aria-hidden="true" /> : <UserRoundCheck aria-hidden="true" />}
+                                <span><small>Empfohlener Weg</small><strong>{route.title}</strong><span>{route.reason}</span></span>
+                              </div>
+                              <label>Eigene Fachkenntnis
+                                <select aria-label={`Fachkenntnis für ${decision.title}`} value={decision.knowledge} onChange={(event) => setDecisionKnowledge(decision.id, event.target.value as CaseDecision['knowledge'])}>
+                                  <option value="vertraut">Fachgebiet vertraut</option>
+                                  <option value="unsicher">Grundkenntnisse, aber unsicher</option>
+                                  <option value="fremd">Nicht mein Fachgebiet</option>
+                                </select>
+                              </label>
+                              <div className="routing-actions">
+                                <button className={`button ${route.kind === 'wiki' ? 'primary' : 'secondary'}`} type="button" onClick={() => setCollaboration({ mode: 'wiki', decisionId: decision.id })}><MessageCircle aria-hidden="true" /> Wiki fragen</button>
+                                <button className={`button ${route.kind === 'consult' ? 'primary' : 'secondary'}`} type="button" onClick={() => setCollaboration({ mode: 'consult', decisionId: decision.id })}><Stethoscope aria-hidden="true" /> Kodierkonsil</button>
+                              </div>
+                            </div>
+                            <div className="button-row">
+                              <label className={`button ${route.kind === 'self' ? 'primary' : 'secondary'} ${runningDecision === decision.id ? 'disabled' : ''}`}>
+                                {runningDecision === decision.id ? <RotateCw className="spin" aria-hidden="true" /> : <FileUp aria-hidden="true" />}
+                                {runningDecision === decision.id ? 'Grouper läuft …' : 'Nachweis hochladen'}
+                                <input className="sr-only" type="file" disabled={runningDecision === decision.id} onChange={(event) => handleEvidenceUpload(decision.id, event.target.files)} />
+                              </label>
+                              {!decision.required && <button className="button secondary" type="button" disabled={Boolean(runningDecision)} onClick={() => void resolveDecision(decision.id, 'ausgeschlossen')}><X aria-hidden="true" /> Ausschließen</button>}
+                            </div>
+                          </>
                         )}
                       </div>
                     )}
@@ -357,8 +456,35 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
           <p className="demo-disclaimer">Dieser Vorschlag nutzt illustrative Demodaten und ist nicht zur Abrechnung bestimmt.</p>
         </section>
       )}
+      {collaboration && (() => {
+        const decision = codingCase.decisions.find((item) => item.id === collaboration.decisionId)
+        return decision ? (
+          <CollaborationDrawer
+            mode={collaboration.mode}
+            codingCase={codingCase}
+            decision={decision}
+            onClose={() => setCollaboration(undefined)}
+            onCreateConsultation={(input) => createConsultation(decision.id, input)}
+            onCompleteConsultation={(consultationId, result, finding) => void completeConsultation(consultationId, result, finding)}
+            onSendWikiMessage={(text) => sendWikiMessage(decision.id, text)}
+          />
+        ) : null
+      })()}
     </div>
   )
+}
+
+function getCollaborationRoute(decision: CaseDecision): { kind: 'self' | 'wiki' | 'consult'; title: string; reason: string } {
+  if (decision.knowledge === 'fremd') {
+    return { kind: 'consult', title: 'Menschliches Kodierkonsil', reason: 'Ohne Grundkenntnisse kann bereits die Arbeitshypothese falsch sein.' }
+  }
+  if (decision.status === 'widersprüchlich' || (decision.groupingRelevance === 'relevant' && decision.knowledge !== 'vertraut')) {
+    return { kind: 'consult', title: 'Menschliches Kodierkonsil', reason: 'Die offene Frage ist gruppierungsrelevant und fachlich nicht sicher.' }
+  }
+  if (decision.groupingRelevance === 'keine' || decision.groupingRelevance === 'möglich') {
+    return { kind: 'wiki', title: 'Wiki-Chat zur Einordnung', reason: 'Grundwissen reicht aus; der Chat liefert Hintergrund, aber keine Fallfreigabe.' }
+  }
+  return { kind: 'self', title: 'Geführte Eigenprüfung', reason: 'Der Sachverhalt ist bekannt und kann mit Dokumenten und Regeln sicher validiert werden.' }
 }
 
 function CheckRow({ label, detail, status }: { label: string; detail: string; status: 'offen' | 'geprüft' }) {

@@ -62,6 +62,8 @@ export interface CaseDecision {
   status: EvidenceStatus
   requestedDocument: string
   effect: string
+  groupingRelevance: 'keine' | 'möglich' | 'relevant'
+  knowledge: 'vertraut' | 'unsicher' | 'fremd'
   resolution?: string
 }
 
@@ -84,6 +86,34 @@ export interface DkrMatch {
   status: 'spezifisch' | 'allgemein'
 }
 
+export interface CodingConsultation {
+  id: string
+  decisionId: string
+  specialty: string
+  question: string
+  expert: string
+  priority: 'normal' | 'dringend'
+  status: 'angefragt' | 'in Bearbeitung' | 'abgeschlossen'
+  createdAt: string
+  result?: 'bestätigt' | 'geändert' | 'weiter ungeklärt'
+  finding?: string
+}
+
+export interface WikiMessage {
+  id: string
+  author: 'Kodierfachkraft' | 'Wiki-Assistent'
+  text: string
+  createdAt: string
+}
+
+export interface WikiThread {
+  id: string
+  decisionId: string
+  title: string
+  messages: WikiMessage[]
+  createdAt: string
+}
+
 export interface CodingCase {
   id: string
   label: string
@@ -103,6 +133,8 @@ export interface CodingCase {
   difficultySource: 'technisch' | 'manuell'
   difficultyReason: string
   dkrMatches: DkrMatch[]
+  consultations: CodingConsultation[]
+  wikiThreads: WikiThread[]
   scenario: 'pulmo-onko' | 'standard'
   status: 'offen' | 'abgeschlossen'
   currentMainDiagnosis: string

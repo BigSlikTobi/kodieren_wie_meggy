@@ -204,6 +204,8 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
             status: 'allgemein',
           },
         ],
+    consultations: [],
+    wikiThreads: [],
     scenario: input.scenario,
     status: 'offen',
     currentMainDiagnosis: isComplex ? 'C34.9 · Demo: Bronchialkarzinom, nicht näher bezeichnet' : 'J18.9 · Demo: Pneumonie, nicht näher bezeichnet',
@@ -229,6 +231,8 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
             status: 'entscheidung',
             requestedDocument: 'Aufnahmebefund und Epikrise',
             effect: 'Kann Basis-DRG und Hauptdiagnose verändern.',
+            groupingRelevance: 'relevant',
+            knowledge: 'vertraut',
           },
           {
             id: 'decision-therapy',
@@ -239,6 +243,8 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
             status: 'ungeklärt',
             requestedDocument: 'Medikations- und Therapienachweis',
             effect: 'Kann OPS, Zusatzentgelt oder NUB auslösen.',
+            groupingRelevance: 'relevant',
+            knowledge: 'unsicher',
           },
           {
             id: 'decision-palliative',
@@ -249,6 +255,8 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
             status: 'wahrscheinlich',
             requestedDocument: 'Stationsverlauf und Leistungsnachweis',
             effect: 'Möglicher alternativer DRG-Pfad.',
+            groupingRelevance: 'möglich',
+            knowledge: 'vertraut',
           },
           {
             id: 'decision-pneumonia',
@@ -259,6 +267,8 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
             status: 'ungeklärt',
             requestedDocument: 'Mikrobiologie und ärztliche Zuordnung',
             effect: 'Eine von vier speziellen Varianten könnte die DRG ändern.',
+            groupingRelevance: 'möglich',
+            knowledge: 'unsicher',
           },
         ]
       : [
@@ -271,6 +281,8 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
             status: 'entscheidung',
             requestedDocument: 'Arztbrief und Bildgebung',
             effect: 'Bestätigt die aktuelle Basis-DRG.',
+            groupingRelevance: 'relevant',
+            knowledge: 'vertraut',
           },
           {
             id: 'decision-pneumonia',
@@ -281,6 +293,8 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
             status: 'ungeklärt',
             requestedDocument: 'Mikrobiologie',
             effect: 'Nur bei belastbarem Erregernachweis vertiefen.',
+            groupingRelevance: 'möglich',
+            knowledge: 'unsicher',
           },
         ],
     grouperRuns: [

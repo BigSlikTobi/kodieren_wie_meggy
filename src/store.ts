@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { initialData } from './data/demo'
 import type { AppData } from './types'
 
-const STORAGE_KEY = 'kodierpfad-demo-v2'
+const STORAGE_KEY = 'kodierpfad-demo-v3'
 
 function cloneInitialData(): AppData {
   return JSON.parse(JSON.stringify(initialData)) as AppData
