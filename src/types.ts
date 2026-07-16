@@ -13,8 +13,29 @@ export type RuleType =
   | 'Medizinische Plausibilität'
   | 'Interner Standard'
   | 'Erfahrungswert'
+  | 'Medizinische Begründung'
 
 export type RuleStatus = 'Entwurf' | 'Geprüft' | 'Freigegeben' | 'Ersetzt' | 'Abgekündigt'
+
+export interface KisScreenshot {
+  id: string
+  fileName: string
+  caption: string
+}
+
+export interface KisGuide {
+  id: string
+  documentKind: string
+  module: string
+  navigationPath: string[]
+  searchTerm: string
+  instruction: string
+  notes: string
+  validFrom: string
+  reviewedAt: string
+  owner: string
+  screenshots: KisScreenshot[]
+}
 
 export interface SiteYearProfile {
   siteId: string
@@ -26,6 +47,7 @@ export interface SiteYearProfile {
   updatedAt: string
   dataQuality: 'vollständig' | 'prüfen'
   uploadedFiles: string[]
+  kisGuides: KisGuide[]
 }
 
 export interface HospitalProfile {
@@ -57,6 +79,15 @@ export type DocumentMapKind = 'verlaufsbericht' | 'ereignisbericht' | 'nachweis'
 export type DocumentAvailability = 'vorhanden' | 'fehlend'
 export type DocumentRelevance = 'neutral' | 'stimmig' | 'potenziell' | 'offen'
 export type DocumentReviewLevel = 'erfasst' | 'grob-geprüft' | 'nachvalidierung' | 'validiert' | 'nicht-angefordert'
+export type OutcomeDimensionStatus = 'neutral' | 'offen' | 'relevant' | 'geprüft'
+
+export interface DocumentOutcomeDimensions {
+  drg: OutcomeDimensionStatus
+  ops: OutcomeDimensionStatus
+  entgelte: OutcomeDimensionStatus
+  kodierung: OutcomeDimensionStatus
+  mbeg: OutcomeDimensionStatus
+}
 
 export interface DocumentMapItem {
   id: string
@@ -73,6 +104,7 @@ export interface DocumentMapItem {
   reason: string
   codingNote: string
   resultImpact: string
+  outcomeDimensions: DocumentOutcomeDimensions
   assessedIteration: number
   linkedDecisionId?: string
 }
@@ -138,6 +170,18 @@ export interface WikiThread {
   createdAt: string
 }
 
+export type MbegStatus = 'entwurf-belegbar' | 'nachweis-fehlt' | 'fachprüfung' | 'kein-bedarf' | 'nicht-belastbar'
+
+export interface MedicalJustification {
+  status: MbegStatus
+  categories: string[]
+  evidenceDocumentIds: string[]
+  missingEvidence: string[]
+  draft: string
+  reviewed: boolean
+  reviewer?: string
+}
+
 export interface CodingCase {
   id: string
   label: string
@@ -168,6 +212,7 @@ export interface CodingCase {
   documentMap: DocumentMapItem[]
   decisions: CaseDecision[]
   grouperRuns: GrouperRun[]
+  medicalJustification: MedicalJustification
   createdAt: string
 }
 

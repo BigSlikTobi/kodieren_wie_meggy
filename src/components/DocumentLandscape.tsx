@@ -9,18 +9,21 @@ import {
   FileText,
   Map,
   MessageCircle,
+  Monitor,
   Route,
   Stethoscope,
   Upload,
   X,
 } from 'lucide-react'
-import type { CodingCase, DocumentMapItem } from '../types'
+import type { CodingCase, DocumentMapItem, KisGuide, OutcomeDimensionStatus } from '../types'
+import { KisSchematic } from './HospitalsView'
 
 interface DocumentLandscapeProps {
   codingCase: CodingCase
   onOpenDecision: (decisionId: string) => void
   onOpenCollaboration: (mode: 'consult' | 'wiki', decisionId: string) => void
   onConfirmReview: (documentId: string) => void
+  kisGuides: KisGuide[]
 }
 
 const kindLabels: Record<DocumentMapItem['kind'], string> = {
@@ -30,7 +33,7 @@ const kindLabels: Record<DocumentMapItem['kind'], string> = {
   vorkodierung: 'Vorkodierung',
 }
 
-export function DocumentLandscape({ codingCase, onOpenDecision, onOpenCollaboration, onConfirmReview }: DocumentLandscapeProps) {
+export function DocumentLandscape({ codingCase, onOpenDecision, onOpenCollaboration, onConfirmReview, kisGuides }: DocumentLandscapeProps) {
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>()
   const documents = codingCase.documentMap ?? []
   const selectedDocument = documents.find((item) => item.id === selectedDocumentId)
@@ -108,6 +111,7 @@ export function DocumentLandscape({ codingCase, onOpenDecision, onOpenCollaborat
       {selectedDocument && (
         <DocumentDetail
           document={selectedDocument}
+          kisGuide={findKisGuide(selectedDocument, kisGuides)}
           onClose={() => setSelectedDocumentId(undefined)}
           onOpenDecision={(decisionId) => {
             setSelectedDocumentId(undefined)
@@ -186,12 +190,14 @@ function DocumentTask({ document, onSelect }: { document: DocumentMapItem; onSel
 
 function DocumentDetail({
   document,
+  kisGuide,
   onClose,
   onOpenDecision,
   onOpenCollaboration,
   onConfirmReview,
 }: {
   document: DocumentMapItem
+  kisGuide?: KisGuide
   onClose: () => void
   onOpenDecision: (decisionId: string) => void
   onOpenCollaboration: (mode: 'consult' | 'wiki', decisionId: string) => void
@@ -219,6 +225,27 @@ function DocumentDetail({
           <div><dt>Mögliche Ergebniswirkung</dt><dd>{document.resultImpact}</dd></div>
           <div><dt>Prüftiefe</dt><dd>{reviewLabel(document.reviewLevel)}</dd></div>
         </dl>
+        <div className="outcome-dimensions" aria-label="Ergebniswirkung nach Dimension">
+          {(Object.entries(document.outcomeDimensions) as [keyof DocumentMapItem['outcomeDimensions'], OutcomeDimensionStatus][]).map(([dimension, value]) => (
+            <div key={dimension}><span>{dimensionLabel(dimension)}</span><strong className={`dimension-${value}`}>{dimensionStatusLabel(value)}</strong></div>
+          ))}
+        </div>
+        <details className="kis-inline-help">
+          <summary><span><Monitor aria-hidden="true" /><span><strong>Wo finde ich dieses Dokument im KIS?</strong><small>Hausbezogene Orientierung · kein Fallnachweis</small></span></span><ChevronDown aria-hidden="true" /></summary>
+          {kisGuide ? (
+            <div className="kis-inline-content">
+              <div className="kis-path">{kisGuide.navigationPath.map((step) => <span key={step}>{step}</span>)}</div>
+              <dl className="document-detail-list">
+                <div><dt>Modul</dt><dd>{kisGuide.module}</dd></div>
+                <div><dt>Suchbegriff</dt><dd>{kisGuide.searchTerm || 'Keiner'}</dd></div>
+                <div><dt>So geht es</dt><dd>{kisGuide.instruction}</dd></div>
+                <div><dt>Hausbesonderheit</dt><dd>{kisGuide.notes}</dd></div>
+              </dl>
+              {kisGuide.screenshots[0] && <div className="kis-inline-screen"><KisSchematic /><span><strong>{kisGuide.screenshots[0].fileName}</strong><small>{kisGuide.screenshots[0].caption}</small></span></div>}
+              <small>Geprüft {kisGuide.reviewedAt} · {kisGuide.owner}</small>
+            </div>
+          ) : <p className="kis-missing-guide">Für diese Dokumentart ist am gewählten Standort noch kein Fundort hinterlegt.</p>}
+        </details>
         {document.relevance === 'neutral' && (
           <div className="coding-duty-note"><FileCheck2 aria-hidden="true" /><span><strong>DRG-neutral heißt nicht unkodiert</strong><small>Die Leistung bleibt regelkonform abzubilden. Aktuell ist nur keine tiefere Dokumentenprüfung nötig.</small></span></div>
         )}
@@ -245,6 +272,26 @@ function DocumentDetail({
       </aside>
     </div>
   )
+}
+
+function findKisGuide(document: DocumentMapItem, guides: KisGuide[]) {
+  const title = `${document.title} ${document.kind}`.toLowerCase()
+  const wanted = title.includes('therapie') || title.includes('medikation')
+    ? 'medikation'
+    : title.includes('broncho') || title.includes('biopsie') || title.includes('op-')
+      ? 'intervention'
+      : title.includes('intensiv') || title.includes('überwachung')
+        ? 'intensiv'
+        : 'arztbrief'
+  return guides.find((guide) => `${guide.id} ${guide.documentKind}`.toLowerCase().includes(wanted))
+}
+
+function dimensionLabel(dimension: keyof DocumentMapItem['outcomeDimensions']) {
+  return { drg: 'DRG', ops: 'OPS', entgelte: 'ZE / NUB', kodierung: 'Vollständigkeit', mbeg: 'MBEG' }[dimension]
+}
+
+function dimensionStatusLabel(status: OutcomeDimensionStatus) {
+  return { neutral: 'Neutral', offen: 'Offen', relevant: 'Relevant', geprüft: 'Geprüft' }[status]
 }
 
 function groupByMapRow(documents: DocumentMapItem[]) {

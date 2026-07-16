@@ -1,6 +1,71 @@
-import type { AppData, CodingCase, HospitalProfile, NewCaseInput, RuleDefinition } from '../types'
+import type { AppData, CodingCase, DocumentOutcomeDimensions, HospitalProfile, KisGuide, NewCaseInput, OutcomeDimensionStatus, RuleDefinition } from '../types'
 
 const isoNow = () => new Date().toISOString()
+
+const dimensions = (
+  drg: OutcomeDimensionStatus,
+  ops: OutcomeDimensionStatus,
+  entgelte: OutcomeDimensionStatus,
+  kodierung: OutcomeDimensionStatus,
+  mbeg: OutcomeDimensionStatus,
+): DocumentOutcomeDimensions => ({ drg, ops, entgelte, kodierung, mbeg })
+
+function createKisGuides(site: string): KisGuide[] {
+  return [
+    {
+      id: `kis-${site}-arztbrief`,
+      documentKind: 'Arztbrief / Verlaufsbericht',
+      module: 'Klinische Dokumentation',
+      navigationPath: ['Patientenakte', 'Dokumente', 'Arztbriefe'],
+      searchTerm: 'Entlassungsbericht',
+      instruction: 'Nach Fachabteilung filtern. Verlegungs- und Entlassungsberichte gemeinsam prüfen.',
+      notes: 'Am Standort werden Aufenthaltsteile 1 und 3 häufig in einem Bericht zusammengeführt.',
+      validFrom: '2026-01-01',
+      reviewedAt: '2026-01-12',
+      owner: 'Projektleitung Demo',
+      screenshots: [{ id: `screen-${site}-arztbrief`, fileName: 'kis_arztbrief_demo.png', caption: 'Dokumentenfilter und Fachabteilungsauswahl · schematische Demo' }],
+    },
+    {
+      id: `kis-${site}-intervention`,
+      documentKind: 'OP- / Interventionsbericht',
+      module: 'Befundportal',
+      navigationPath: ['Patientenakte', 'Befunde', 'Interventionen'],
+      searchTerm: 'Bronchoskopie',
+      instruction: 'Ereignisdatum wählen. Finalen Befund öffnen, nicht nur den Untersuchungsauftrag.',
+      notes: 'Vorläufige Befunde sind mit einem grauen Punkt markiert.',
+      validFrom: '2026-01-01',
+      reviewedAt: '2026-01-10',
+      owner: 'Projektleitung Demo',
+      screenshots: [{ id: `screen-${site}-intervention`, fileName: 'kis_intervention_demo.png', caption: 'Finalstatus und Befundaufruf · schematische Demo' }],
+    },
+    {
+      id: `kis-${site}-medikation`,
+      documentKind: 'Medikation / Therapienachweis',
+      module: 'Kurve und Medikation',
+      navigationPath: ['Patientenakte', 'Kurve', 'Verabreichte Medikation'],
+      searchTerm: 'Applikationsnachweis',
+      instruction: 'Zeitraum des Fachabteilungsaufenthalts einstellen und verabreichte statt angeordnete Medikation exportieren.',
+      notes: 'Dosisdetails stehen im aufklappbaren Applikationsprotokoll.',
+      validFrom: '2026-01-01',
+      reviewedAt: '2026-01-14',
+      owner: 'Onkologie-Koordination Demo',
+      screenshots: [{ id: `screen-${site}-medikation`, fileName: 'kis_medikation_demo.png', caption: 'Applikationsprotokoll und Zeitraum · schematische Demo' }],
+    },
+    {
+      id: `kis-${site}-intensiv`,
+      documentKind: 'Intensivkurve / Überwachungsnachweis',
+      module: 'PDMS',
+      navigationPath: ['Patientenakte', 'Externe Systeme', 'Intensivkurve'],
+      searchTerm: 'Tageskurve',
+      instruction: 'Tageskurven und Organersatzverfahren für den gesamten Intensivzeitraum exportieren.',
+      notes: 'Kann für OPS und die medizinische Begründung der vollstationären Behandlung relevant sein.',
+      validFrom: '2026-01-01',
+      reviewedAt: '2026-01-09',
+      owner: 'Intensiv-Team Demo',
+      screenshots: [{ id: `screen-${site}-intensiv`, fileName: 'kis_intensivkurve_demo.png', caption: 'Absprung ins PDMS · schematische Demo' }],
+    },
+  ]
+}
 
 export const demoHospitals: HospitalProfile[] = [
   {
@@ -18,6 +83,7 @@ export const demoHospitals: HospitalProfile[] = [
         updatedAt: '2026-01-09',
         dataQuality: 'vollständig',
         uploadedFiles: ['strukturmerkmale_2026.xls', 'nub_vereinbarungen_2026.xls', 'historie_2024_2025.xls'],
+        kisGuides: createKisGuides('marien-mitte'),
       },
       {
         siteId: 'marien-nord',
@@ -29,6 +95,7 @@ export const demoHospitals: HospitalProfile[] = [
         updatedAt: '2026-01-11',
         dataQuality: 'prüfen',
         uploadedFiles: ['strukturmerkmale_2026.xls', 'nub_vereinbarungen_2026.xls'],
+        kisGuides: createKisGuides('marien-nord'),
       },
       {
         siteId: 'marien-mitte',
@@ -40,6 +107,7 @@ export const demoHospitals: HospitalProfile[] = [
         updatedAt: '2025-01-08',
         dataQuality: 'vollständig',
         uploadedFiles: ['strukturmerkmale_2025.xls', 'nub_vereinbarungen_2025.xls', 'historie_2023_2024.xls'],
+        kisGuides: createKisGuides('marien-mitte-2025'),
       },
     ],
   },
@@ -58,6 +126,7 @@ export const demoHospitals: HospitalProfile[] = [
         updatedAt: '2026-01-15',
         dataQuality: 'vollständig',
         uploadedFiles: ['struktur_2026.xls', 'nubs_2026.xls', 'historische_faelle.xls'],
+        kisGuides: createKisGuides('hanse-west'),
       },
       {
         siteId: 'hanse-ost',
@@ -69,12 +138,28 @@ export const demoHospitals: HospitalProfile[] = [
         updatedAt: '2025-02-02',
         dataQuality: 'prüfen',
         uploadedFiles: ['struktur_2025.xls'],
+        kisGuides: createKisGuides('hanse-ost'),
       },
     ],
   },
 ]
 
 export const demoRules: RuleDefinition[] = [
+  {
+    id: 'rule-mbeg-intensity',
+    name: 'Vollstationäre Behandlungsintensität begründen',
+    type: 'Medizinische Begründung',
+    status: 'Freigegeben',
+    year: 2026,
+    scope: 'Alle Krankenhäuser',
+    naturalText: 'Eine medizinische Begründung nur aus belegten fallbezogenen Tatsachen erstellen. Organersatz, invasive Diagnostik, engmaschige Überwachung und nicht ambulant durchführbare Therapien können die vollstationäre Behandlung begründen. Ambulante oder teilstationäre Alternativen müssen konkret gegen den dokumentierten Bedarf abgegrenzt werden.',
+    trigger: 'Im Fallabschluss wird optional eine medizinische Begründung benötigt.',
+    conditions: ['Mindestens ein belastbarer stationärer Behandlungsgrund ist belegt', 'Jede Aussage verweist auf ein vorhandenes Dokument oder Ereignis', 'Eine weniger intensive Versorgungsform ist konkret abgegrenzt'],
+    exclusions: ['Reine Vermutungen', 'Nicht dokumentierte Risiken', 'Automatische Übermittlung ohne menschliche Freigabe'],
+    evidence: ['Verlaufsbericht', 'Interventions- oder OP-Bericht', 'Intensivkurve', 'Therapie- und Überwachungsnachweis'],
+    reaction: 'Beleggebundenen Entwurf anzeigen, fehlende Nachweise nennen oder die Erstellung als nicht belastbar stoppen.',
+    impactTest: { affectedCases: 236, changedSuggestions: 41, changedDrgs: 0 },
+  },
   {
     id: 'rule-pneumonia',
     name: 'Spezifische Pneumonie absichern',
@@ -169,6 +254,7 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           reason: 'Die vorhandene Kodierung passt grob zur Behandlungskette und zur ersten Grouper-Hypothese.',
           codingNote: 'C34.9 und zwei OPS-Demogruppen sind vorkodiert. Die Einzelnachweise werden nur bei Ergebniswirkung vertieft.',
           resultImpact: 'Dient als Ausgangspunkt. Sie ersetzt keinen Fallnachweis.',
+          outcomeDimensions: dimensions('geprüft', 'offen', 'offen', 'geprüft', 'neutral'),
           assessedIteration: 1,
           linkedDecisionId: 'decision-main',
         },
@@ -187,6 +273,7 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           reason: 'Aufnahmegrund, Bildgebung und invasive Diagnostik stützen den pulmologisch-onkologischen Pfad.',
           codingNote: 'Für die erste Hypothese wurde der Bericht quergelesen. Die Hauptdiagnose bleibt separat zu belegen.',
           resultImpact: 'Bestätigt die aktuelle Fallrichtung.',
+          outcomeDimensions: dimensions('relevant', 'neutral', 'neutral', 'geprüft', 'relevant'),
           assessedIteration: 1,
           linkedDecisionId: 'decision-main',
         },
@@ -204,6 +291,7 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           reason: 'Der Eingriff ist für den Behandlungspfad zentral. Die genaue OPS-Ausprägung ist noch nicht gegen den Originalbericht geprüft.',
           codingNote: 'Eine unspezifische bronchoskopische Diagnostik ist vorkodiert.',
           resultImpact: 'Kann die Prozedur spezifizieren und einen alternativen Pfad öffnen.',
+          outcomeDimensions: dimensions('relevant', 'relevant', 'neutral', 'offen', 'relevant'),
           assessedIteration: 1,
           linkedDecisionId: 'decision-main',
         },
@@ -221,6 +309,7 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           reason: 'Der Befund stützt die onkologische Arbeitshypothese.',
           codingNote: 'Tumordiagnose als illustrative Demoangabe bestätigt.',
           resultImpact: 'Belegt die führende Diagnosehypothese.',
+          outcomeDimensions: dimensions('geprüft', 'neutral', 'neutral', 'geprüft', 'neutral'),
           assessedIteration: 1,
           linkedDecisionId: 'decision-main',
         },
@@ -239,6 +328,7 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           reason: 'Der Verlauf bestätigt die führende medikamentöse Behandlung.',
           codingNote: 'Therapieart und Dosis sind im Verlaufsbericht nicht ausreichend spezifisch belegt.',
           resultImpact: 'Bestätigt den Pfad, reicht aber nicht für alle OPS- und Entgeltmerkmale.',
+          outcomeDimensions: dimensions('relevant', 'offen', 'offen', 'offen', 'relevant'),
           assessedIteration: 1,
           linkedDecisionId: 'decision-therapy',
         },
@@ -257,6 +347,7 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           reason: 'Gabe, Dosis und Therapieart können OPS, Zusatzentgelt oder NUB verändern.',
           codingNote: 'Die systemische Therapie ist nur aus dem Verlauf vorkodiert.',
           resultImpact: 'Kann DRG, Zusatzentgelt oder NUB verändern.',
+          outcomeDimensions: dimensions('relevant', 'relevant', 'relevant', 'offen', 'relevant'),
           assessedIteration: 1,
           linkedDecisionId: 'decision-therapy',
         },
@@ -275,6 +366,7 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           reason: 'Das Strukturmerkmal ist vorhanden. Der aktuelle Verlauf liefert aber noch keinen starken Hinweis auf die Komplexbehandlung.',
           codingNote: 'Keine palliativmedizinische Komplexbehandlung vorkodiert.',
           resultImpact: 'Nur bei neuen Hinweisen vertiefen.',
+          outcomeDimensions: dimensions('offen', 'offen', 'neutral', 'offen', 'offen'),
           assessedIteration: 1,
           linkedDecisionId: 'decision-palliative',
         },
@@ -292,6 +384,7 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           reason: 'Die aktuelle Tumorhypothese wird durch eine Pneumoniespezifizierung voraussichtlich nicht verändert.',
           codingNote: 'Keine spezifische Pneumonie aus ungesichertem Erregernachweis ableiten.',
           resultImpact: 'Aktuell kein realistischer Ergebniswechsel.',
+          outcomeDimensions: dimensions('neutral', 'neutral', 'neutral', 'offen', 'neutral'),
           assessedIteration: 1,
           linkedDecisionId: 'decision-pneumonia',
         },
@@ -300,18 +393,22 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
         {
           id: 'map-precode', title: 'Vorkodierung · strukturierter Export', kind: 'vorkodierung' as const, availability: 'vorhanden' as const, relevance: 'stimmig' as const, reviewLevel: 'grob-geprüft' as const, priority: 'erledigt' as const,
           startDay: 1, endDay: input.stayDays, department: 'Gesamtfall', mapRow: 1, reason: 'Die Vorkodierung passt zum konservativen Verlauf.', codingNote: 'Unspezifische Pneumonie ist vorkodiert.', resultImpact: 'Ausgangspunkt der ersten Iteration.', assessedIteration: 1, linkedDecisionId: 'decision-main',
+          outcomeDimensions: dimensions('geprüft', 'neutral', 'neutral', 'geprüft', 'neutral'),
         },
         {
           id: 'map-discharge', title: 'Pneumologischer Arztbrief', kind: 'verlaufsbericht' as const, availability: 'vorhanden' as const, relevance: 'stimmig' as const, reviewLevel: 'grob-geprüft' as const, priority: 'erledigt' as const,
           startDay: 1, endDay: input.stayDays, department: 'Pneumologie', mapRow: 0, reason: 'Der Bericht deckt den stringenten Gesamtverlauf ab.', codingNote: 'Aufnahmegrund und konservative Therapie grob abgeglichen.', resultImpact: 'Bestätigt die aktuelle DRG-Hypothese.', assessedIteration: 1, linkedDecisionId: 'decision-main',
+          outcomeDimensions: dimensions('geprüft', 'neutral', 'neutral', 'geprüft', 'relevant'),
         },
         {
           id: 'map-imaging', title: 'Röntgen-Thorax', kind: 'ereignisbericht' as const, availability: 'vorhanden' as const, relevance: 'stimmig' as const, reviewLevel: 'validiert' as const, priority: 'erledigt' as const,
           startDay: 2, department: 'Radiologie', mapRow: 0, reason: 'Die Bildgebung stützt die Pneumonie.', codingNote: 'Bildgebungsnachweis vorhanden.', resultImpact: 'Bestätigt die Diagnosehypothese.', assessedIteration: 1, linkedDecisionId: 'decision-main',
+          outcomeDimensions: dimensions('geprüft', 'neutral', 'neutral', 'geprüft', 'relevant'),
         },
         {
           id: 'map-microbiology', title: 'Mikrobiologie', kind: 'nachweis' as const, availability: 'fehlend' as const, relevance: 'potenziell' as const, reviewLevel: 'nachvalidierung' as const, priority: 'jetzt' as const,
           startDay: 2, department: 'Pneumologie', mapRow: 1, reason: 'Vier spezielle Pneumonievarianten könnten den Grouper-Pfad verändern.', codingNote: 'Unspezifische Pneumonie bleibt bis zum belastbaren Erregernachweis bestehen.', resultImpact: 'Kann eine spezielle Diagnose und alternative DRG öffnen.', assessedIteration: 1, linkedDecisionId: 'decision-pneumonia',
+          outcomeDimensions: dimensions('relevant', 'neutral', 'neutral', 'offen', 'neutral'),
         },
       ]
 
@@ -473,6 +570,23 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
         extras: [],
       },
     ],
+    medicalJustification: isComplex
+      ? {
+          status: 'entwurf-belegbar',
+          categories: ['Invasive Diagnostik', 'Unmittelbare Weiterbehandlung', 'Hohe Therapieintensität'],
+          evidenceDocumentIds: ['map-pulmo-report', 'map-bronchoscopy', 'map-oncology-report'],
+          missingEvidence: ['Applikationsnachweis für die konkrete systemische Therapie'],
+          draft: 'Die vollstationäre Behandlung war aufgrund der zeitnah erforderlichen invasiven bronchoskopischen Diagnostik mit Biopsie und der sich unmittelbar anschließenden fachübergreifenden onkologischen Weiterbehandlung erforderlich. Der dokumentierte Ablauf mit Diagnostik, histologischer Sicherung und Einleitung der systemischen Therapie erforderte eine durchgehende stationäre Koordination und Überwachung. Eine ambulante oder teilstationäre Durchführung hätte diesen eng gekoppelten Behandlungsablauf im dokumentierten Zeitraum nicht gleichwertig abgebildet.',
+          reviewed: false,
+        }
+      : {
+          status: 'fachprüfung',
+          categories: ['Behandlungsintensität', 'Klinische Überwachung'],
+          evidenceDocumentIds: ['map-discharge', 'map-imaging'],
+          missingEvidence: ['Konkrete stationäre Überwachungs- oder Therapieintensität'],
+          draft: 'Der dokumentierte pneumologische Verlauf und die Bildgebung belegen die Erkrankung. Für eine belastbare Abgrenzung gegenüber einer ambulanten Behandlung muss die konkrete stationäre Behandlungs- oder Überwachungsintensität noch fachlich ergänzt werden.',
+          reviewed: false,
+        },
     createdAt: isoNow(),
   }
 }

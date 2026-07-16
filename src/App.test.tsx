@@ -164,4 +164,48 @@ describe('Kodierpfad prototype', () => {
     await user.click(screen.getByRole('button', { name: /Abschlussvorschlag/i }))
     expect(screen.getByRole('heading', { name: /Fallabschluss/i })).toBeInTheDocument()
   })
+
+  it('verwaltet hausbezogene KIS-Fundorte getrennt von Falldokumenten', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /^Häuser$/i }))
+    await user.click(screen.getByRole('tab', { name: /KIS- und Projektwissen/i }))
+
+    expect(screen.getByRole('heading', { name: /Wo finde ich was im KIS/i })).toBeInTheDocument()
+    expect(screen.getByText(/kein medizinischer Nachweis/i)).toBeInTheDocument()
+    expect(screen.getByText('Patientenakte')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Fundort anlegen/i }))
+    await user.clear(screen.getByLabelText('Dokumentart'))
+    await user.type(screen.getByLabelText('Dokumentart'), 'Pflegebericht')
+    await user.clear(screen.getByLabelText('Anleitung'))
+    await user.type(screen.getByLabelText('Anleitung'), 'Im Pflegeportal nach Zeitraum filtern.')
+    await user.click(screen.getByRole('button', { name: /Fundort speichern/i }))
+
+    expect(screen.getByRole('heading', { name: 'Pflegebericht' })).toBeInTheDocument()
+  })
+
+  it('zeigt Ergebnisdimensionen und einen beleggebundenen MBEG-Entwurf', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await user.click(screen.getByRole('button', { name: /Fall analysieren/i }))
+
+    await user.click(screen.getByRole('button', { name: 'Bronchoskopie- und Biopsiebericht, Vorprüfung · nachvalidieren, Tag 3' }))
+    const documentDialog = screen.getByRole('dialog', { name: 'Dokument einordnen' })
+    expect(within(documentDialog).getByText('ZE / NUB')).toBeInTheDocument()
+    expect(within(documentDialog).getByText('MBEG')).toBeInTheDocument()
+    await user.click(within(documentDialog).getByText(/Wo finde ich dieses Dokument im KIS/i))
+    expect(within(documentDialog).getByText('Befundportal')).toBeInTheDocument()
+    await user.click(within(documentDialog).getByRole('button', { name: 'Schließen' }))
+
+    await user.click(screen.getByRole('button', { name: /Medizinische Begründung vollstationär/i }))
+    const mbegDialog = screen.getByRole('dialog', { name: 'Medizinische Begründung' })
+    expect(within(mbegDialog).getByText(/Keine automatische Übermittlung/i)).toBeInTheDocument()
+    expect(within(mbegDialog).getByText(/invasiven bronchoskopischen Diagnostik/i)).toBeInTheDocument()
+    await user.click(within(mbegDialog).getByRole('button', { name: /Fachlich geprüft markieren/i }))
+    expect(within(mbegDialog).getByText('Fachlich geprüft')).toBeInTheDocument()
+  })
 })

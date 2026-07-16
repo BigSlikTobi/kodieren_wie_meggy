@@ -19,6 +19,7 @@ import {
   Play,
   Plus,
   RotateCw,
+  ShieldCheck,
   Sparkles,
   Stethoscope,
   UserRoundCheck,
@@ -29,6 +30,7 @@ import type { GrouperClient } from '../services/grouper'
 import type { AppData, CaseDecision, CodingCase, CodingConsultation, EvidenceStatus, HospitalProfile } from '../types'
 import { CollaborationDrawer } from './CollaborationDrawer'
 import { DocumentLandscape } from './DocumentLandscape'
+import { MedicalJustificationDrawer } from './MedicalJustificationDrawer'
 
 interface CaseCockpitProps {
   codingCase: CodingCase
@@ -53,6 +55,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
   const [showAllDocuments, setShowAllDocuments] = useState(false)
   const [finalOpen, setFinalOpen] = useState(codingCase.status === 'abgeschlossen')
   const [collaboration, setCollaboration] = useState<{ mode: 'consult' | 'wiki'; decisionId: string }>()
+  const [mbegOpen, setMbegOpen] = useState(false)
 
   const hospital = hospitals.find((item) => item.id === codingCase.hospitalId)
   const profile = hospital?.profiles.find((item) => item.siteId === codingCase.siteId && item.year === codingCase.year)
@@ -245,6 +248,13 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
     setFinalOpen(true)
   }
 
+  const reviewMbeg = () => {
+    mutateCase({
+      ...codingCase,
+      medicalJustification: { ...codingCase.medicalJustification, reviewed: true, reviewer: 'Kodierfachkraft · Demo' },
+    })
+  }
+
   return (
     <div className="page cockpit-page">
       <div className="case-title-row">
@@ -289,6 +299,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
         }}
         onOpenCollaboration={(mode, decisionId) => setCollaboration({ mode, decisionId })}
         onConfirmReview={(documentId) => void confirmDocumentReview(documentId)}
+        kisGuides={profile?.kisGuides ?? []}
       />
 
       <section className="validation-stage" aria-labelledby="validation-title">
@@ -436,6 +447,11 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
               <CheckRow label="Altersregeln" detail={`Alter bei Aufnahme: ${codingCase.age}`} status="geprüft" />
               <CheckRow label="Hybrid-DRG" detail="Demo-Abgrenzung geprüft" status="geprüft" />
             </div>
+            <button className="mbeg-check" type="button" onClick={() => setMbegOpen(true)}>
+              <span className={`check-icon ${codingCase.medicalJustification.reviewed ? 'done' : ''}`}><ShieldCheck aria-hidden="true" /></span>
+              <span><small>Optionaler Parallelpfad</small><strong>Medizinische Begründung vollstationär</strong><span>{codingCase.medicalJustification.reviewed ? 'Fachlich geprüft' : codingCase.medicalJustification.status === 'entwurf-belegbar' ? 'Entwurf belegbar' : 'Fachliche Prüfung nötig'}</span></span>
+              <ArrowRight aria-hidden="true" />
+            </button>
           </section>
         </div>
 
@@ -479,6 +495,10 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
             <div><span>Entgelte</span><strong>{currentRun.extras.join(', ') || 'Keine zusätzlichen Demovorschläge'}</strong></div>
           </div>
           {openAlternatives.length > 0 && <div className="inline-note"><Info aria-hidden="true" /><span>Dokumentierte Restunsicherheiten: {openAlternatives.map((item) => item.title).join('; ')}.</span></div>}
+          <details className="final-mbeg">
+            <summary><span><ShieldCheck aria-hidden="true" /><span><strong>Medizinische Begründung vollstationär</strong><small>{codingCase.medicalJustification.reviewed ? 'Fachlich geprüft und optional weiterleitbar' : 'Optional anzeigen und fachlich prüfen'}</small></span></span><ChevronDown aria-hidden="true" /></summary>
+            <div><p>{codingCase.medicalJustification.draft}</p><button className="button secondary" type="button" onClick={() => setMbegOpen(true)}>Begründung und Belege öffnen <ArrowRight aria-hidden="true" /></button></div>
+          </details>
           <p className="demo-disclaimer">Dieser Vorschlag nutzt illustrative Demodaten und ist nicht zur Abrechnung bestimmt.</p>
         </section>
       )}
@@ -496,6 +516,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
           />
         ) : null
       })()}
+      {mbegOpen && <MedicalJustificationDrawer codingCase={codingCase} kisGuides={profile?.kisGuides ?? []} onClose={() => setMbegOpen(false)} onReview={reviewMbeg} />}
     </div>
   )
 }

@@ -20,6 +20,7 @@ export function RulesView({ data, onDataChange }: RulesViewProps) {
   const selectedRule = data.rules.find((rule) => rule.id === selectedRuleId)
 
   const structureRule = () => {
+    const isMbeg = type === 'Medizinische Begründung'
     setDraft({
       id: `rule-${Date.now()}`,
       name,
@@ -28,13 +29,15 @@ export function RulesView({ data, onDataChange }: RulesViewProps) {
       year,
       scope: 'Alle Krankenhäuser',
       naturalText,
-      trigger: naturalText.toLowerCase().includes('pneumonie') ? 'Spezifischer Pneumonie-Kode wird geprüft.' : 'Passender Kodierkandidat wird geprüft.',
-      conditions: naturalText.toLowerCase().includes('pneumonie')
+      trigger: isMbeg ? 'Eine medizinische Begründung der vollstationären Behandlung wird angefordert.' : naturalText.toLowerCase().includes('pneumonie') ? 'Spezifischer Pneumonie-Kode wird geprüft.' : 'Passender Kodierkandidat wird geprüft.',
+      conditions: isMbeg
+        ? ['Stationärer Behandlungsgrund ist konkret dokumentiert', 'Ambulante oder teilstationäre Alternative ist fallbezogen abgegrenzt', 'Jede Aussage besitzt einen Dokumentbeleg']
+        : naturalText.toLowerCase().includes('pneumonie')
         ? ['Passende Bildgebung ist dokumentiert', 'Keimnachweis liegt über definierter Grenze', 'Ärztliche Zuordnung ist vorhanden']
         : ['Benannte Voraussetzung ist dokumentiert'],
-      exclusions: ['Widersprüchlicher oder unzureichender Nachweis'],
-      evidence: naturalText.toLowerCase().includes('pneumonie') ? ['Radiologiebefund', 'Mikrobiologie', 'Ärztliche Bewertung'] : ['Falldokumentation'],
-      reaction: 'Kode vorschlagen, weiteren Nachweis anfordern oder Variante ausschließen.',
+      exclusions: isMbeg ? ['Nicht dokumentierte Risiken', 'Allgemeine Textbausteine ohne Fallbezug', 'Automatische Übermittlung'] : ['Widersprüchlicher oder unzureichender Nachweis'],
+      evidence: isMbeg ? ['Verlaufsbericht', 'Therapie-, Interventions- oder Überwachungsnachweis'] : naturalText.toLowerCase().includes('pneumonie') ? ['Radiologiebefund', 'Mikrobiologie', 'Ärztliche Bewertung'] : ['Falldokumentation'],
+      reaction: isMbeg ? 'Beleggebundenen Entwurf erstellen, fehlende Nachweise nennen und menschliche Freigabe verlangen.' : 'Kode vorschlagen, weiteren Nachweis anfordern oder Variante ausschließen.',
     })
   }
 
@@ -69,7 +72,7 @@ export function RulesView({ data, onDataChange }: RulesViewProps) {
             <div className="section-heading"><Sparkles aria-hidden="true" /><div><h2 id="rule-input-title">Regel beschreiben</h2><p>Normale Sprache. Noch keine Aktivierung.</p></div></div>
             <label>Name<input value={name} onChange={(event) => setName(event.target.value)} /></label>
             <div className="form-grid two">
-              <label>Regelart<select value={type} onChange={(event) => setType(event.target.value as RuleType)}><option>Offizielle Regel</option><option>Medizinische Plausibilität</option><option>Interner Standard</option><option>Erfahrungswert</option></select></label>
+              <label>Regelart<select value={type} onChange={(event) => setType(event.target.value as RuleType)}><option>Offizielle Regel</option><option>Medizinische Plausibilität</option><option>Interner Standard</option><option>Erfahrungswert</option><option>Medizinische Begründung</option></select></label>
               <label>Abrechnungsjahr<select value={year} onChange={(event) => setYear(Number(event.target.value))}><option>2026</option><option>2025</option></select></label>
             </div>
             <label>Regeltext<textarea rows={7} value={naturalText} onChange={(event) => setNaturalText(event.target.value)} /></label>
