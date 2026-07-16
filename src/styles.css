@@ -758,6 +758,39 @@ button.department-stay:hover { filter: brightness(.98); }
 .document-grammar-card strong { overflow: hidden; font-size: .6rem; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
 .document-grammar-card small { overflow: hidden; color: var(--text-muted); font-size: .5rem; text-overflow: ellipsis; white-space: nowrap; }
 .document-grammar-card > b { min-width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; background: var(--surface-soft); font-size: .55rem; font-weight: 600; }
+.document-hypothesis-panel { display: grid; gap: 8px; padding: 11px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-soft); }
+.document-hypothesis-panel > header { display: flex; align-items: end; justify-content: space-between; gap: 14px; }
+.document-hypothesis-panel > header > span:first-child { min-width: 0; display: grid; gap: 2px; }
+.document-hypothesis-panel > header strong { font-size: .68rem; font-weight: 550; }
+.document-hypothesis-panel > header small { color: var(--text-muted); font-size: .54rem; }
+.document-hypothesis-panel > header > span:last-child { flex: 0 0 auto; color: var(--text-muted); font-size: .55rem; }
+.document-hypothesis-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 6px; }
+.document-hypothesis-group { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-left-width: 3px; border-radius: 8px; background: var(--surface); }
+.document-hypothesis-group.hypothesis-precode { border-left-color: var(--primary); }
+.document-hypothesis-group.hypothesis-action { border-left-color: var(--warning); }
+.document-hypothesis-group.hypothesis-validated { border-left-color: var(--success); }
+.document-hypothesis-group.hypothesis-provisional { border-left-color: #568093; }
+.document-hypothesis-group.hypothesis-neutral { border-left-color: var(--border-strong); }
+.document-hypothesis-group-head { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 7px; align-items: center; padding: 8px; border-bottom: 1px solid var(--border); }
+.document-hypothesis-group-head > svg { width: 14px; height: 14px; color: var(--primary); }
+.hypothesis-action .document-hypothesis-group-head > svg { color: var(--warning); }
+.hypothesis-validated .document-hypothesis-group-head > svg { color: var(--success); }
+.hypothesis-neutral .document-hypothesis-group-head > svg { color: var(--text-muted); }
+.document-hypothesis-group-head > span { min-width: 0; display: grid; gap: 1px; }
+.document-hypothesis-group-head strong { overflow: hidden; font-size: .58rem; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.document-hypothesis-group-head small { overflow: hidden; color: var(--text-muted); font-size: .46rem; text-overflow: ellipsis; white-space: nowrap; }
+.document-hypothesis-group-head > b { min-width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; background: var(--surface-soft); color: var(--text-muted); font-size: .49rem; }
+.hypothesis-document-list { display: grid; }
+.hypothesis-document-list > button, .hypothesis-document-list > div { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; align-items: center; padding: 7px 8px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text); text-align: left; }
+.hypothesis-document-list > button { cursor: pointer; }
+.hypothesis-document-list > button:hover { background: var(--surface-soft); }
+.hypothesis-document-list > :last-child { border-bottom: 0; }
+.hypothesis-document-list > button > span:first-child, .hypothesis-document-list > div > span:first-child { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 5px; background: var(--surface-soft); color: var(--text-muted); }
+.hypothesis-document-list > button > span:first-child svg, .hypothesis-document-list > div > span:first-child svg { width: 11px; height: 11px; }
+.hypothesis-document-list > button > span:nth-child(2), .hypothesis-document-list > div > span:nth-child(2) { min-width: 0; display: grid; gap: 2px; }
+.hypothesis-document-list strong { overflow: hidden; font-size: .54rem; font-weight: 550; text-overflow: ellipsis; white-space: nowrap; }
+.hypothesis-document-list small { overflow: hidden; color: var(--text-muted); font-size: .46rem; text-overflow: ellipsis; white-space: nowrap; }
+.hypothesis-document-list > button > svg { width: 11px; height: 11px; color: var(--text-muted); }
 .course-document-lane, .activity-lane { display: grid; grid-template-columns: 225px minmax(0, 1fr); gap: 12px; align-items: center; }
 .activity-lane-label { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; }
 .activity-lane-label > svg { width: 15px; height: 15px; color: var(--primary); }
@@ -767,14 +800,24 @@ button.department-stay:hover { filter: brightness(.98); }
 .activity-lane-label > b { min-width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; background: var(--surface-soft); color: var(--text-muted); font-size: .52rem; }
 .course-document-track, .activity-lane-track { position: relative; min-width: 0; border-radius: 7px; background: repeating-linear-gradient(90deg, transparent 0, transparent calc(10% - 1px), var(--border) 10%); }
 .course-document-track { height: 30px; background-color: var(--surface-soft); }
-.course-document-band { position: absolute; top: 5px; height: 20px; min-width: 24px; display: block; overflow: hidden; padding: 0 7px; border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border)); border-radius: 6px; background: var(--primary-soft); color: var(--primary); cursor: pointer; font-size: .49rem; line-height: 18px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.course-document-band { position: absolute; top: 5px; height: 20px; min-width: 24px; display: flex; align-items: center; gap: 5px; overflow: hidden; padding: 0 7px; border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border)); border-radius: 6px; background: var(--primary-soft); color: var(--primary); cursor: pointer; font-size: .49rem; line-height: 18px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .course-document-band span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.course-document-band i { width: 6px; height: 6px; flex: 0 0 auto; border-radius: 50%; background: currentColor; }
+.course-document-band.hypothesis-action { border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); background: var(--warning-soft); color: var(--warning); }
+.course-document-band.hypothesis-validated { border-color: color-mix(in srgb, var(--success) 36%, var(--border)); background: var(--success-soft); color: var(--success); }
+.course-document-band.hypothesis-provisional { color: #456f80; }
+.course-document-band.hypothesis-neutral { border-color: var(--border); background: var(--surface); color: var(--text-muted); }
 .activity-lanes { display: grid; gap: 5px; padding-top: 4px; border-top: 1px solid var(--border); }
 .activity-lane { min-height: 43px; }
 .activity-lane-track { height: 38px; margin-inline: 17px; background-color: var(--surface-soft); }
 .activity-lane-track::before { content: ''; position: absolute; top: 50%; left: 0; right: 0; height: 1px; background: var(--border-strong); }
 .activity-marker { position: absolute; top: 3px; z-index: 1; width: 32px; height: 32px; display: grid; place-items: center; padding: 0; border: 1px solid var(--border-strong); border-radius: 50%; background: var(--surface); color: var(--primary); cursor: pointer; transform: translateX(-50%); }
 .activity-marker:hover { border-color: var(--primary); background: var(--primary-soft); }
+.activity-marker.hypothesis-action { border-color: var(--warning); box-shadow: 0 0 0 2px color-mix(in srgb, var(--warning) 13%, transparent); }
+.activity-marker.hypothesis-validated { border-color: var(--success); box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 11%, transparent); }
+.activity-marker.hypothesis-provisional { border-color: #7b9ca9; }
+.activity-marker.hypothesis-precode { border-color: var(--primary); }
+.activity-marker.hypothesis-neutral { border-color: var(--border-strong); color: var(--text-muted); }
 .activity-marker-icon, .activity-marker-icon svg { width: 14px; height: 14px; }
 .activity-marker > b { position: absolute; top: -5px; right: -5px; min-width: 15px; height: 15px; display: grid; place-items: center; border-radius: 50%; background: var(--primary); color: #fff; font-size: .43rem; }
 .activity-marker-date { position: absolute; top: 33px; left: 50%; color: var(--text-muted); font-size: .43rem; transform: translateX(-50%); white-space: nowrap; }
@@ -978,6 +1021,8 @@ button.department-stay:hover { filter: brightness(.98); }
   .treatment-overview-facts { width: 100%; grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .document-grammar { grid-template-columns: 1fr; }
   .document-grammar-card small { white-space: normal; }
+  .document-hypothesis-panel > header { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .document-hypothesis-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .course-document-lane, .activity-lane { grid-template-columns: 1fr; gap: 6px; }
   .activity-lane-label small { white-space: normal; }
   .course-document-track, .activity-lane-track { min-width: 0; }
@@ -1107,6 +1152,8 @@ button.department-stay:hover { filter: brightness(.98); }
   .intake-case-strip > div { border-right: 0; border-bottom: 1px solid var(--border); }
   .treatment-overview-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .treatment-overview-facts span { min-width: 0; }
+  .document-hypothesis-groups { grid-template-columns: 1fr; }
+  .document-hypothesis-group-head small, .hypothesis-document-list small { white-space: normal; }
   .ribbon-axis strong { max-width: 145px; }
   .proportional-stays .department-stay { min-height: 70px; padding: 16px 4px 7px; }
   .proportional-stays .department-stay-copy strong { font-size: .55rem; }

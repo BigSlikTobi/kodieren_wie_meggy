@@ -1,6 +1,6 @@
-import { Activity, ArrowRight, Building2, Cross, FileCheck2, FileCode2, Microscope, NotebookText, Pill, Scissors, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { Activity, ArrowRight, Building2, Cross, FileCheck2, FileCode2, FileQuestion, Microscope, NotebookText, Pill, Scissors, ShieldAlert, ShieldCheck } from 'lucide-react'
 import type { ReactNode } from 'react'
-import type { CodingCase, DocumentMapItem, TreatmentEvent } from '../types'
+import type { CodingCase, CodingEntry, DocumentMapItem, TreatmentEvent } from '../types'
 
 interface TreatmentRibbonProps {
   codingCase: CodingCase
@@ -17,6 +17,7 @@ interface DepartmentStay {
 }
 
 type ActivityLaneKey = 'diagnostic-non-invasive' | 'diagnostic-invasive' | 'intervention' | 'therapy' | 'complex'
+type DocumentHypothesisBucket = 'precode' | 'validated' | 'provisional' | 'action' | 'neutral'
 
 const laneConfig: Array<{ key: ActivityLaneKey; label: string; shortLabel: string }> = [
   { key: 'diagnostic-non-invasive', label: 'Nicht-invasive Diagnostik', shortLabel: 'Nicht-invasiv' },
@@ -37,6 +38,13 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOp
   const intensiveDays = departments.filter((stay) => stay.intensive).reduce((sum, stay) => sum + duration(stay), 0)
   const transitionCount = Math.max(0, departments.length - 1)
   const relevantEvents = events.filter((event) => !['Aufnahme', 'Verlegung', 'Entlassung'].includes(event.type))
+  const openDocument = onOpenDepartment || onOpenEvent ? (document: DocumentMapItem) => {
+    const linkedEvent = events.find((event) => event.linkedDocumentIds?.includes(document.id))
+      ?? events.find((event) => event.department === document.department && event.day >= document.startDay && event.day <= (document.endDay ?? document.startDay))
+    if (!linkedEvent) return
+    if (onOpenDepartment) onOpenDepartment(linkedEvent.id, document.id)
+    else onOpenEvent?.(linkedEvent.id)
+  } : undefined
 
   return (
     <section className={`treatment-ribbon treatment-overview ${compact ? 'is-compact' : ''}`} aria-label="Behandlungsverlauf">
@@ -96,6 +104,8 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOp
         <DocumentGrammarCard icon={<ShieldCheck aria-hidden="true" />} title="Leistungsnachweise" count={proofDocuments.length} detail="Zeitraum/Punkt · OPS, ZE oder NUB" className="proof" />
       </div>
 
+      <DocumentHypothesisPanel documents={documents} codingEntries={codingCase.codingEntries} onOpenDocument={openDocument} />
+
       {courseDocuments.length > 0 && (
         <div className="course-document-lane">
           <span className="activity-lane-label"><NotebookText aria-hidden="true" /><span><strong>Verlaufsberichte</strong><small>spannen einen oder mehrere Aufenthaltsteile auf</small></span></span>
@@ -104,10 +114,11 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOp
               const start = ((document.startDay - 1) / codingCase.stayDays) * 100
               const width = (((document.endDay ?? document.startDay) - document.startDay + 1) / codingCase.stayDays) * 100
               const linkedEvent = events.find((event) => event.linkedDocumentIds?.includes(document.id)) ?? events.find((event) => event.department === document.department)
-              const label = `${document.title}, ${formatDay(codingCase, document.startDay)} bis ${formatDay(codingCase, document.endDay ?? document.startDay)}`
+              const status = getDocumentHypothesisStatus(document)
+              const label = `${document.title}, ${formatDay(codingCase, document.startDay)} bis ${formatDay(codingCase, document.endDay ?? document.startDay)}, ${status.detail}`
               return onOpenDepartment && linkedEvent ? (
-                <button key={document.id} className="course-document-band" style={{ left: `${start}%`, width: `${Math.max(width, 8)}%` }} type="button" title={label} aria-label={`${label}. Zugeordnetes Dokument öffnen.`} onClick={() => onOpenDepartment(linkedEvent.id, document.id)}><span>{document.title}</span></button>
-              ) : <span key={document.id} className="course-document-band" style={{ left: `${start}%`, width: `${Math.max(width, 8)}%` }} title={label}><span>{document.title}</span></span>
+                <button key={document.id} className={`course-document-band hypothesis-${status.bucket}`} style={{ left: `${start}%`, width: `${Math.max(width, 8)}%` }} type="button" title={label} aria-label={`${label}. Zugeordnetes Dokument öffnen.`} onClick={() => onOpenDepartment(linkedEvent.id, document.id)}><span>{document.title}</span><i aria-hidden="true" /></button>
+              ) : <span key={document.id} className={`course-document-band hypothesis-${status.bucket}`} style={{ left: `${start}%`, width: `${Math.max(width, 8)}%` }} title={label}><span>{document.title}</span><i aria-hidden="true" /></span>
             })}
           </div>
         </div>
@@ -125,11 +136,12 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOp
                 {groupEventsByDay(laneEvents).map((group) => {
                   const event = group.events[0]
                   const position = codingCase.stayDays <= 1 ? 0 : ((event.day - 1) / (codingCase.stayDays - 1)) * 100
-                  const linkedDocs = group.events.flatMap((item) => documents.filter((document) => item.linkedDocumentIds?.includes(document.id)))
+                  const linkedDocs = uniqueDocuments(group.events.flatMap((item) => documents.filter((document) => item.linkedDocumentIds?.includes(document.id))))
                   const eventDocCount = linkedDocs.filter((document) => document.kind === 'ereignisbericht').length
                   const proofDocCount = linkedDocs.filter((document) => document.kind === 'nachweis').length
                   const codeCount = group.events.reduce((sum, item) => sum + codingCase.codingEntries.filter((entry) => entry.treatmentEventId === item.id).length, 0)
-                  const markerLabel = `${formatDay(codingCase, event.day)}: ${group.events.map((item) => item.label).join(', ')}. ${eventDocCount} Ereignisdokumente, ${proofDocCount} Nachweise, ${codeCount} Kodes.`
+                  const markerBucket = getDominantDocumentBucket(linkedDocs)
+                  const markerLabel = `${formatDay(codingCase, event.day)}: ${group.events.map((item) => item.label).join(', ')}. ${eventDocCount} Ereignisdokumente, ${proofDocCount} Nachweise, ${codeCount} Kodes.${linkedDocs.length ? ` Dokumentenlage: ${linkedDocs.map((document) => `${document.title} – ${getDocumentHypothesisStatus(document).detail}`).join('; ')}.` : ''}`
                   const marker = (
                     <>
                       <span className="activity-marker-icon"><EventIcon event={event} /></span>
@@ -139,8 +151,8 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOp
                     </>
                   )
                   return onOpenEvent ? (
-                    <button className="activity-marker" style={{ left: `${position}%` }} type="button" key={`${lane.key}-${event.day}`} title={markerLabel} aria-label={`${markerLabel} Falllandkarte öffnen.`} onClick={() => onOpenEvent(event.id)}>{marker}</button>
-                  ) : <span className="activity-marker" style={{ left: `${position}%` }} key={`${lane.key}-${event.day}`} title={markerLabel}>{marker}</span>
+                    <button className={`activity-marker hypothesis-${markerBucket}`} style={{ left: `${position}%` }} type="button" key={`${lane.key}-${event.day}`} title={markerLabel} aria-label={`${markerLabel} Falllandkarte öffnen.`} onClick={() => onOpenEvent(event.id)}>{marker}</button>
+                  ) : <span className={`activity-marker hypothesis-${markerBucket}`} style={{ left: `${position}%` }} key={`${lane.key}-${event.day}`} title={markerLabel}>{marker}</span>
                 })}
               </div>
             </div>
@@ -166,6 +178,66 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOp
 
 function DocumentGrammarCard({ icon, title, count, detail, className }: { icon: ReactNode; title: string; count: number; detail: string; className: string }) {
   return <div className={`document-grammar-card grammar-${className}`}>{icon}<span><strong>{title}</strong><small>{detail}</small></span><b>{count}</b></div>
+}
+
+const hypothesisGroupConfig: Array<{ bucket: DocumentHypothesisBucket; label: string; description: string; icon: ReactNode }> = [
+  { bucket: 'precode', label: 'Vorkodierung', description: 'Ausgangspunkt, noch kein Fallnachweis', icon: <FileCode2 aria-hidden="true" /> },
+  { bucket: 'action', label: 'Jetzt klären', description: 'Potentiell relevant für DRG oder Entgelt', icon: <ShieldAlert aria-hidden="true" /> },
+  { bucket: 'validated', label: 'Validiert', description: 'Geprüft und stimmig zur Hypothese', icon: <ShieldCheck aria-hidden="true" /> },
+  { bucket: 'provisional', label: 'Vorläufig stimmig', description: 'Grobabgleich reicht aktuell aus', icon: <FileCheck2 aria-hidden="true" /> },
+  { bucket: 'neutral', label: 'Vermutlich nicht relevant', description: 'Aktuell kein realistischer Ergebniswechsel', icon: <FileQuestion aria-hidden="true" /> },
+]
+
+function DocumentHypothesisPanel({ documents, codingEntries, onOpenDocument }: { documents: DocumentMapItem[]; codingEntries: CodingEntry[]; onOpenDocument?: (document: DocumentMapItem) => void }) {
+  const available = documents.filter((document) => document.availability === 'vorhanden').length
+  const missing = documents.length - available
+  const precodeCount = codingEntries.filter((entry) => entry.active && entry.origin === 'vorkodierung').length
+  return (
+    <section className="document-hypothesis-panel" aria-label="Dokumentenbewertung zur DRG-Hypothese">
+      <header>
+        <span><strong>DRG-Dokumentenlage</strong><small>Bewertung gilt für die aktuelle Hypothese und wird je Iteration neu geprüft.</small></span>
+        <span>{available} vorhanden · {missing} fehlend · {precodeCount} Vorkodes</span>
+      </header>
+      <div className="document-hypothesis-groups">
+        {hypothesisGroupConfig.map((group) => {
+          const groupedDocuments = documents.filter((document) => getDocumentHypothesisStatus(document).bucket === group.bucket)
+          if (!groupedDocuments.length) return null
+          return (
+            <section className={`document-hypothesis-group hypothesis-${group.bucket}`} key={group.bucket}>
+              <div className="document-hypothesis-group-head">{group.icon}<span><strong>{group.label}</strong><small>{group.description}</small></span><b>{groupedDocuments.length}</b></div>
+              <div className="hypothesis-document-list">
+                {groupedDocuments.map((document) => {
+                  const status = getDocumentHypothesisStatus(document)
+                  const linkedEntries = document.kind === 'vorkodierung'
+                    ? codingEntries.filter((entry) => entry.active && entry.origin === 'vorkodierung')
+                    : codingEntries.filter((entry) => entry.active && entry.evidenceDocumentId === document.id)
+                  const content = <><span>{document.availability === 'fehlend' ? <FileQuestion aria-hidden="true" /> : <FileCheck2 aria-hidden="true" />}</span><span><strong>{document.title}</strong><small>{status.detail}{linkedEntries.length ? ` · ${linkedEntries.length} Vorkode${linkedEntries.length === 1 ? '' : 's'}` : ''}</small></span>{onOpenDocument && <ArrowRight aria-hidden="true" />}</>
+                  return onOpenDocument ? <button type="button" key={document.id} onClick={() => onOpenDocument(document)}>{content}</button> : <div key={document.id}>{content}</div>
+                })}
+              </div>
+            </section>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
+function getDocumentHypothesisStatus(document: DocumentMapItem): { bucket: DocumentHypothesisBucket; detail: string } {
+  if (document.kind === 'vorkodierung') return { bucket: 'precode', detail: document.reviewLevel === 'validiert' ? 'vorhanden · validiert' : 'vorhanden · grob geprüft' }
+  if (document.reviewLevel === 'validiert') return { bucket: 'validated', detail: 'vorhanden · validiert' }
+  if (document.priority === 'jetzt' || document.reviewLevel === 'nachvalidierung') return { bucket: 'action', detail: document.availability === 'fehlend' ? 'fehlend · potentiell relevant' : 'vorhanden · Nachvalidierung nötig' }
+  if (document.relevance === 'neutral' || document.reviewLevel === 'nicht-angefordert') return { bucket: 'neutral', detail: document.availability === 'fehlend' ? 'fehlend · vermutlich nicht relevant' : 'vorhanden · vermutlich nicht relevant' }
+  return { bucket: 'provisional', detail: document.availability === 'fehlend' ? 'fehlend · vorläufig stimmig' : 'vorhanden · vorläufig stimmig' }
+}
+
+function getDominantDocumentBucket(documents: DocumentMapItem[]): DocumentHypothesisBucket {
+  const priority: DocumentHypothesisBucket[] = ['action', 'validated', 'provisional', 'precode', 'neutral']
+  return priority.find((bucket) => documents.some((document) => getDocumentHypothesisStatus(document).bucket === bucket)) ?? 'neutral'
+}
+
+function uniqueDocuments(documents: DocumentMapItem[]) {
+  return [...new Map(documents.map((document) => [document.id, document])).values()]
 }
 
 function LaneIcon({ lane }: { lane: ActivityLaneKey }) {
