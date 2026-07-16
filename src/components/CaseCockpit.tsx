@@ -24,12 +24,13 @@ import {
   X,
 } from 'lucide-react'
 import type { GrouperClient } from '../services/grouper'
-import type { AppData, CaseDecision, CodingCase, CodingConsultation, EvidenceStatus, HospitalProfile, TechnicalCaseValue } from '../types'
+import type { AppData, CaseDecision, CodingCase, CodingConsultation, CodingEntry, EvidenceStatus, HospitalProfile, TechnicalCaseValue } from '../types'
 import { CollaborationDrawer } from './CollaborationDrawer'
 import { CodingEntryDrawer, type CodingEntryInput } from './CodingEntryDrawer'
 import { CodingTransferDrawer } from './CodingTransferDrawer'
 import { DocumentLandscape } from './DocumentLandscape'
 import { MedicalJustificationDrawer } from './MedicalJustificationDrawer'
+import { MainDiagnosisDrawer } from './MainDiagnosisDrawer'
 import { TreatmentRibbon } from './TreatmentRibbon'
 
 interface CaseCockpitProps {
@@ -61,6 +62,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
   const [historyOpen, setHistoryOpen] = useState(false)
   const [codingEditorDocumentId, setCodingEditorDocumentId] = useState<string>()
   const [codingTransferOpen, setCodingTransferOpen] = useState(false)
+  const [mainDiagnosisEditorOpen, setMainDiagnosisEditorOpen] = useState(false)
 
   const hospital = hospitals.find((item) => item.id === codingCase.hospitalId)
   const profile = hospital?.profiles.find((item) => item.siteId === codingCase.siteId && item.year === codingCase.year)
@@ -73,6 +75,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
   const blockingTechnical = unresolvedTechnical.filter((value) => value.groupingRelevant)
   const codingChanges = codingCase.codingEntries.filter((entry) => entry.change !== 'unchanged')
   const activeCodingEntries = codingCase.codingEntries.filter((entry) => entry.active)
+  const activeMainDiagnosis = activeCodingEntries.find((entry) => entry.type === 'HD')
   const stepStates = [true, Boolean(currentRun), openAlternatives.length === 0, unresolvedTechnical.length === 0, codingCase.status === 'abgeschlossen']
   const recommendedStep = firstOpenDecision ? 3 : unresolvedTechnical.length > 0 ? 4 : 5
   const nextAction = firstOpenDecision?.title ?? unresolvedTechnical[0]?.label ?? (codingCase.status === 'abgeschlossen' ? 'Fall abgeschlossen' : 'Fallabschluss prüfen')
@@ -373,6 +376,62 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
     setCodingEditorDocumentId(undefined)
   }
 
+  const saveDirectMainDiagnosis = async (input: { code: string; description: string }) => {
+    setRunningDecision('main-diagnosis')
+    const existingEntry = codingCase.codingEntries.find((entry) => entry.active && entry.type === 'HD')
+    const entryId = existingEntry?.id ?? `coding-hd-${Date.now()}`
+    const description = input.description || existingEntry?.description || 'Manuell gesetzte Hauptdiagnose · illustrative Demoangabe'
+    const nextEntry: CodingEntry = existingEntry
+      ? {
+          ...existingEntry,
+          code: input.code,
+          description,
+          originalCode: existingEntry.originalCode ?? existingEntry.code,
+          originalDescription: existingEntry.originalDescription ?? existingEntry.description,
+          change: existingEntry.change === 'added' ? 'added' : 'changed',
+          origin: 'manuell',
+          reviewStatus: 'ungeprüft',
+          source: 'Direkteingabe der Kodierfachkraft',
+          evidenceDocumentId: undefined,
+          treatmentEventId: existingEntry.treatmentEventId ?? codingCase.timeline[0]?.id,
+          serviceDate: existingEntry.serviceDate ?? codingCase.admissionDate,
+          department: 'Gesamtfall',
+          assessedIteration: currentRun.iteration,
+        }
+      : {
+          id: entryId,
+          type: 'HD',
+          code: input.code,
+          description,
+          change: 'added',
+          origin: 'manuell',
+          reviewStatus: 'ungeprüft',
+          active: true,
+          source: 'Direkteingabe der Kodierfachkraft',
+          treatmentEventId: codingCase.timeline[0]?.id,
+          serviceDate: codingCase.admissionDate,
+          department: 'Gesamtfall',
+          assessedIteration: currentRun.iteration,
+        }
+    const updatedEntries = existingEntry
+      ? codingCase.codingEntries.map((entry) => entry.id === existingEntry.id ? nextEntry : entry)
+      : [...codingCase.codingEntries, nextEntry]
+    const updatedCase: CodingCase = {
+      ...codingCase,
+      currentMainDiagnosis: `${nextEntry.code} · ${nextEntry.description}`,
+      codingEntries: updatedEntries,
+    }
+    mutateCase(updatedCase)
+    const newRun = await grouperClient.group(updatedCase, `Hauptdiagnose direkt eingegeben: ${nextEntry.code}`)
+    mutateCase({
+      ...updatedCase,
+      codingEntries: updatedCase.codingEntries.map((entry) => entry.id === entryId ? { ...entry, assessedIteration: newRun.iteration } : entry),
+      grouperRuns: [...updatedCase.grouperRuns, newRun],
+    })
+    setRunningDecision(undefined)
+    setMainDiagnosisEditorOpen(false)
+  }
+
   return (
     <div className="page cockpit-page">
       <div className="case-title-row">
@@ -531,6 +590,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
                                 </select>
                               </label>
                               <div className="routing-actions">
+                                {decision.id === 'decision-main' && <button className="button primary" type="button" onClick={() => setMainDiagnosisEditorOpen(true)}><FileCode2 aria-hidden="true" /> Hauptdiagnose eingeben</button>}
                                 <button className={`button ${route.kind === 'wiki' ? 'primary' : 'secondary'}`} type="button" onClick={() => setCollaboration({ mode: 'wiki', decisionId: decision.id })}><MessageCircle aria-hidden="true" /> Wiki fragen</button>
                                 <button className={`button ${route.kind === 'consult' ? 'primary' : 'secondary'}`} type="button" onClick={() => setCollaboration({ mode: 'consult', decisionId: decision.id })}><Stethoscope aria-hidden="true" /> Kodierkonsil</button>
                               </div>
@@ -628,6 +688,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
         const document = codingCase.documentMap.find((item) => item.id === codingEditorDocumentId)
         return document ? <CodingEntryDrawer document={document} codingCase={codingCase} entries={codingCase.codingEntries} running={runningDecision === 'coding-entry'} onClose={() => setCodingEditorDocumentId(undefined)} onSave={saveCodingEntry} /> : null
       })()}
+      {mainDiagnosisEditorOpen && <MainDiagnosisDrawer currentEntry={activeMainDiagnosis} nextIteration={currentRun.iteration + 1} running={runningDecision === 'main-diagnosis'} onClose={() => setMainDiagnosisEditorOpen(false)} onSave={saveDirectMainDiagnosis} />}
       {codingTransferOpen && <CodingTransferDrawer codingCase={codingCase} onClose={() => setCodingTransferOpen(false)} />}
       {collaboration && (() => {
         const decision = codingCase.decisions.find((item) => item.id === collaboration.decisionId)

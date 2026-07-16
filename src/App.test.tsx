@@ -139,6 +139,35 @@ describe('Kodierpfad prototype', () => {
     expect(within(transfer).getByText(/Quelle: Bronchoskopie- und Biopsiebericht · Iteration 4/i)).toBeInTheDocument()
   })
 
+  it('übernimmt eine frühe Hauptdiagnose als Arbeitskode und hält die Pflichtprüfung offen', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openManualCockpit(user)
+    await user.click(screen.getByRole('button', { name: /Prüfungen/i }))
+
+    await user.click(screen.getByRole('button', { name: /Hauptdiagnose eingeben/i }))
+    const editor = screen.getByRole('dialog', { name: 'Hauptdiagnose eingeben' })
+    expect(within(editor).getByLabelText('ICD-Kode der Hauptdiagnose')).toHaveValue('C34.9')
+    expect(within(editor).getByText(/Pflichtprüfung der Hauptdiagnose bleibt offen/i)).toBeInTheDocument()
+
+    await user.clear(within(editor).getByLabelText('ICD-Kode der Hauptdiagnose'))
+    await user.type(within(editor).getByLabelText('ICD-Kode der Hauptdiagnose'), 'C34.1')
+    await user.click(within(editor).getByRole('button', { name: /Als Arbeitskode übernehmen/i }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Hauptdiagnose eingeben' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.getAllByText(/Iteration 2/i).length).toBeGreaterThan(0))
+    expect(screen.getAllByText(/C34.1 · Bronchialkarzinom/i).length).toBeGreaterThan(0)
+    const mainDecision = screen.getByRole('button', { name: /Hauptdiagnose über den Gesamtfall belegen/i })
+    expect(mainDecision).toHaveTextContent('Entscheidung nötig')
+
+    await user.click(screen.getByRole('button', { name: /DRG & Entgelte/i }))
+    await user.click(screen.getByRole('button', { name: /Für KIS öffnen/i }))
+    const transfer = screen.getByRole('dialog', { name: 'Vollständige Kodierung' })
+    expect(within(transfer).getByText('C34.1')).toBeInTheDocument()
+    expect(within(transfer).getByText('Geändert')).toBeInTheDocument()
+    expect(within(transfer).getByText(/Quelle: Direkteingabe der Kodierfachkraft · Iteration 2/i)).toBeInTheDocument()
+  })
+
   it('strukturiert, testet und genehmigt eine neue Regel', async () => {
     const user = userEvent.setup()
     render(<App />)

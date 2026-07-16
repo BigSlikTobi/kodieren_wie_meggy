@@ -770,6 +770,7 @@ button.event-chip:hover { border-color: var(--border-strong); background: var(--
 .coding-source-strip, .coding-delete-preview, .coding-iteration-preview, .transfer-note { display: flex; align-items: flex-start; gap: 10px; }
 .coding-source-strip { margin: 19px 0; padding-bottom: 17px; border-bottom: 1px solid var(--border); }
 .coding-source-strip > svg { margin-top: 2px; color: var(--success); }
+.coding-source-strip.manual-code-source > svg { color: var(--primary); }
 .coding-source-strip > span, .coding-delete-preview > span, .coding-iteration-preview > span, .transfer-note > span { min-width: 0; display: grid; gap: 3px; }
 .coding-source-strip small, .coding-source-strip span span, .coding-delete-preview small, .coding-delete-preview span span, .coding-iteration-preview small, .transfer-note small { color: var(--text-muted); font-size: .64rem; }
 .coding-source-strip strong, .coding-delete-preview strong, .coding-iteration-preview strong, .transfer-note strong { font-size: .74rem; font-weight: 500; }
@@ -788,6 +789,11 @@ button.event-chip:hover { border-color: var(--border-strong); background: var(--
 .coding-delete-preview small, .coding-delete-preview span span { color: var(--text-muted); }
 .coding-iteration-preview { margin-top: 18px; padding: 13px; border-radius: 9px; background: var(--info-soft); }
 .coding-iteration-preview > svg { margin-top: 2px; color: var(--success); }
+.manual-code-warning { display: flex; align-items: flex-start; gap: 10px; margin: 0 0 18px; padding: 13px; border: 1px solid color-mix(in srgb, var(--warning) 28%, transparent); border-radius: 9px; background: var(--warning-soft); }
+.manual-code-warning > svg { flex: 0 0 auto; width: 18px; height: 18px; margin-top: 1px; color: var(--warning); }
+.manual-code-warning > span { min-width: 0; display: grid; gap: 4px; }
+.manual-code-warning strong { font-size: .72rem; font-weight: 500; }
+.manual-code-warning small { color: var(--text-muted); font-size: .64rem; line-height: 1.45; }
 .coding-transfer-entry { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 13px; align-items: center; margin-bottom: 22px; padding: 15px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); cursor: pointer; text-align: left; }
 .coding-transfer-entry:hover { border-color: var(--border-strong); background: var(--surface-soft); }
 .coding-transfer-entry > span:first-child { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 10px; background: var(--primary-soft); color: var(--primary); }

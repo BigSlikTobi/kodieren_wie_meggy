@@ -48,6 +48,9 @@ export class MockGrouperClient implements GrouperClient {
     if (trigger?.startsWith('Kodierung') && !hasSpecificPneumoniaCode) {
       reason = `${trigger}; vollständige Kodierung neu gruppiert. Der DRG-Pfad bleibt in der Demo stabil.`
     }
+    if (trigger?.startsWith('Hauptdiagnose direkt eingegeben')) {
+      reason = `${trigger}; DRG-Hypothese mit dem manuellen Arbeitskode neu gruppiert. Der Dokumentnachweis bleibt offen.`
+    }
 
     changed = codingCase.grouperRuns.at(-1)?.drg !== drg
 
