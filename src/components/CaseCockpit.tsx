@@ -460,6 +460,9 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
         const documentId = event?.linkedDocumentIds?.length === 1 ? event.linkedDocumentIds[0] : undefined
         setDocumentMapFocus({ eventId, documentId })
         setDocumentMapOpen(true)
+      }} onOpenDepartment={(eventId, documentId) => {
+        setDocumentMapFocus({ eventId, documentId })
+        setDocumentMapOpen(true)
       }} />
 
       <nav className="coding-step-nav" aria-label="Kodierschritte">

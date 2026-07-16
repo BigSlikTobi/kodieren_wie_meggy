@@ -1,15 +1,17 @@
-import { Activity, ArrowRight, Cross, FileText, Microscope, Pill, Scissors, ShieldAlert } from 'lucide-react'
-import type { CodingCase, TreatmentEvent } from '../types'
+import { Activity, ArrowRight, Building2, Cross, FileCheck2, FileCode2, Microscope, NotebookText, Pill, Scissors, ShieldAlert, ShieldCheck } from 'lucide-react'
+import type { CodingCase, DocumentMapItem, TreatmentEvent } from '../types'
 
 interface TreatmentRibbonProps {
   codingCase: CodingCase
   compact?: boolean
   onOpenEvent?: (eventId: string) => void
+  onOpenDepartment?: (eventId: string, documentId?: string) => void
 }
 
-export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent }: TreatmentRibbonProps) {
+export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOpenDepartment }: TreatmentRibbonProps) {
   const events = [...codingCase.timeline].sort((a, b) => a.day - b.day || (a.time ?? '').localeCompare(b.time ?? ''))
   const departments = getDepartmentStays(events, codingCase.stayDays)
+  const documents = codingCase.documentMap ?? []
 
   return (
     <section className={`treatment-ribbon ${compact ? 'is-compact' : ''}`} aria-label="Behandlungsverlauf">
@@ -19,18 +21,37 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent }: Tr
         <span>{formatDay(codingCase, codingCase.stayDays)}</span>
       </div>
 
+      <div className="document-type-legend" aria-label="Dokumenttypen im Behandlungsverlauf">
+        <span className="document-kind kind-course"><NotebookText aria-hidden="true" /> Verlauf</span>
+        <span className="document-kind kind-event"><FileCheck2 aria-hidden="true" /> Ereignis</span>
+        <span className="document-kind kind-proof"><ShieldCheck aria-hidden="true" /> Nachweis</span>
+      </div>
+
       <div className="department-route" aria-label="Fachabteilungen im Fall">
-        {departments.map((stay) => (
-          <div className={`department-stay ${stay.intensive ? 'is-intensive' : ''}`} key={`${stay.department}-${stay.start}`}>
-            <span>{stay.department}</span>
-            <small>{formatDay(codingCase, stay.start)}{stay.end !== stay.start ? `–${formatDay(codingCase, stay.end)}` : ''}</small>
-          </div>
-        ))}
+        {departments.map((stay) => {
+          const courseDocuments = documents.filter((item) => item.kind === 'verlaufsbericht' && item.department === stay.department && rangesOverlap(stay.start, stay.end, item.startDay, item.endDay ?? item.startDay))
+          const firstEvent = events.find((event) => event.department === stay.department && event.day >= stay.start && event.day <= stay.end)
+          const content = (
+            <>
+              <span className="department-stay-icon">{stay.intensive ? <Activity aria-hidden="true" /> : <Building2 aria-hidden="true" />}</span>
+              <span className="department-stay-copy"><strong>{stay.department}</strong><small>{formatDay(codingCase, stay.start)}{stay.end !== stay.start ? `–${formatDay(codingCase, stay.end)}` : ''}</small></span>
+              <span className={`department-document-count ${courseDocuments.some((item) => item.availability === 'fehlend') ? 'has-missing' : ''}`}><NotebookText aria-hidden="true" /><b>{courseDocuments.length}</b><span>Verlauf</span></span>
+              {onOpenDepartment && firstEvent && <ArrowRight className="department-stay-arrow" aria-hidden="true" />}
+            </>
+          )
+          const style = { flexGrow: stay.end - stay.start + 1 }
+          const label = `${stay.department}, ${formatDay(codingCase, stay.start)} bis ${formatDay(codingCase, stay.end)}, ${courseDocuments.length} Verlaufsdokument${courseDocuments.length === 1 ? '' : 'e'}`
+          return onOpenDepartment && firstEvent ? (
+            <button className={`department-stay ${stay.intensive ? 'is-intensive' : ''}`} style={style} type="button" key={`${stay.department}-${stay.start}`} aria-label={`${label}. Verlaufsdokument öffnen.`} onClick={() => onOpenDepartment(firstEvent.id, courseDocuments.length === 1 ? courseDocuments[0].id : undefined)}>{content}</button>
+          ) : (
+            <div className={`department-stay ${stay.intensive ? 'is-intensive' : ''}`} style={style} key={`${stay.department}-${stay.start}`} aria-label={label}>{content}</div>
+          )
+        })}
       </div>
 
       <div className="event-chip-grid" role="list" aria-label="Chronologische Ereignisse">
         {events.map((event) => {
-          const documentCount = event.linkedDocumentIds?.length ?? 0
+          const linkedDocuments = documents.filter((item) => event.linkedDocumentIds?.includes(item.id))
           const codeCount = codingCase.codingEntries.filter((entry) => entry.treatmentEventId === event.id).length
           const content = (
             <>
@@ -41,8 +62,10 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent }: Tr
                 <span>{event.department}</span>
               </span>
               <span className="event-chip-links">
-                <span><FileText aria-hidden="true" />{documentCount}</span>
-                <span>{codeCount} Kode{codeCount === 1 ? '' : 's'}</span>
+                <DocumentKindCount kind="verlaufsbericht" documents={linkedDocuments} />
+                <DocumentKindCount kind="ereignisbericht" documents={linkedDocuments} />
+                <DocumentKindCount kind="nachweis" documents={linkedDocuments} />
+                <span className="event-code-count"><FileCode2 aria-hidden="true" />{codeCount} Kode{codeCount === 1 ? '' : 's'}</span>
               </span>
               {onOpenEvent && <ArrowRight className="event-chip-arrow" aria-hidden="true" />}
             </>
@@ -64,6 +87,18 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent }: Tr
       )}
     </section>
   )
+}
+
+function DocumentKindCount({ kind, documents }: { kind: Extract<DocumentMapItem['kind'], 'verlaufsbericht' | 'ereignisbericht' | 'nachweis'>; documents: DocumentMapItem[] }) {
+  const count = documents.filter((item) => item.kind === kind).length
+  if (!count) return null
+  const config = {
+    verlaufsbericht: { singular: 'Verlauf', plural: 'Verläufe', className: 'kind-course', icon: <NotebookText aria-hidden="true" /> },
+    ereignisbericht: { singular: 'Ereignis', plural: 'Ereignisse', className: 'kind-event', icon: <FileCheck2 aria-hidden="true" /> },
+    nachweis: { singular: 'Nachweis', plural: 'Nachweise', className: 'kind-proof', icon: <ShieldCheck aria-hidden="true" /> },
+  }[kind]
+  const label = count === 1 ? config.singular : config.plural
+  return <span className={`document-kind ${config.className}`} aria-label={`${count} ${label}`} title={`${count} ${label}`}>{config.icon}<b>{count}</b><span>{label}</span></span>
 }
 
 export function EventIcon({ event }: { event: TreatmentEvent }) {
@@ -97,4 +132,8 @@ function getDepartmentStays(events: TreatmentEvent[], stayDays: number) {
     end: Math.max(event.day, Math.min(stayDays, (transitions[index + 1]?.day ?? stayDays + 1) - 1)),
     intensive: event.type === 'Intensiv' || event.department === 'Intensivmedizin',
   })).filter((stay, index, stays) => index === 0 || stay.department !== stays[index - 1].department || stay.start !== stays[index - 1].start)
+}
+
+function rangesOverlap(startA: number, endA: number, startB: number, endB: number) {
+  return startA <= endB && startB <= endA
 }
