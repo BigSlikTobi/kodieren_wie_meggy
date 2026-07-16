@@ -1,22 +1,18 @@
 import { useMemo, useState } from 'react'
 import {
-  AlertCircle,
   ArrowRight,
   BookOpenCheck,
   Building2,
   Check,
   ChevronDown,
   CircleDot,
-  Clock3,
-  FileCheck2,
   FileUp,
-  GitBranch,
   Gauge,
   History,
   Info,
   LockKeyhole,
+  Map,
   MessageCircle,
-  Play,
   Plus,
   RotateCw,
   ShieldCheck,
@@ -27,10 +23,11 @@ import {
   X,
 } from 'lucide-react'
 import type { GrouperClient } from '../services/grouper'
-import type { AppData, CaseDecision, CodingCase, CodingConsultation, EvidenceStatus, HospitalProfile } from '../types'
+import type { AppData, CaseDecision, CodingCase, CodingConsultation, EvidenceStatus, HospitalProfile, TechnicalCaseValue } from '../types'
 import { CollaborationDrawer } from './CollaborationDrawer'
 import { DocumentLandscape } from './DocumentLandscape'
 import { MedicalJustificationDrawer } from './MedicalJustificationDrawer'
+import { TreatmentRibbon } from './TreatmentRibbon'
 
 interface CaseCockpitProps {
   codingCase: CodingCase
@@ -52,10 +49,12 @@ const statusLabels: Record<EvidenceStatus, string> = {
 export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange, onNewCase }: CaseCockpitProps) {
   const [activeDecision, setActiveDecision] = useState<string | undefined>(codingCase.decisions[0]?.id)
   const [runningDecision, setRunningDecision] = useState<string>()
-  const [showAllDocuments, setShowAllDocuments] = useState(false)
   const [finalOpen, setFinalOpen] = useState(codingCase.status === 'abgeschlossen')
   const [collaboration, setCollaboration] = useState<{ mode: 'consult' | 'wiki'; decisionId: string }>()
   const [mbegOpen, setMbegOpen] = useState(false)
+  const [activeStep, setActiveStep] = useState(1)
+  const [documentMapOpen, setDocumentMapOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   const hospital = hospitals.find((item) => item.id === codingCase.hospitalId)
   const profile = hospital?.profiles.find((item) => item.siteId === codingCase.siteId && item.year === codingCase.year)
@@ -64,15 +63,11 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
   const openRequired = codingCase.decisions.filter((decision) => decision.required && decision.status !== 'belegt' && decision.status !== 'ausgeschlossen')
   const openAlternatives = codingCase.decisions.filter((decision) => !decision.required && !['belegt', 'ausgeschlossen'].includes(decision.status))
   const evidenceCount = codingCase.decisions.filter((decision) => decision.status === 'belegt').length
-  const completedChecks = [
-    true,
-    Boolean(currentRun),
-    openAlternatives.length === 0,
-    codingCase.decisions.some((decision) => decision.id.includes('therapy') && decision.status === 'belegt') || codingCase.scenario === 'standard',
-    openRequired.length === 0,
-    codingCase.status === 'abgeschlossen',
-  ]
-  const progress = Math.round((completedChecks.filter(Boolean).length / completedChecks.length) * 100)
+  const unresolvedTechnical = codingCase.technicalValues.filter((value) => !['bestätigt', 'korrigiert'].includes(value.status))
+  const blockingTechnical = unresolvedTechnical.filter((value) => value.groupingRelevant)
+  const stepStates = [true, Boolean(currentRun), openAlternatives.length === 0, unresolvedTechnical.length === 0, codingCase.status === 'abgeschlossen']
+  const recommendedStep = firstOpenDecision ? 3 : unresolvedTechnical.length > 0 ? 4 : 5
+  const nextAction = firstOpenDecision?.title ?? unresolvedTechnical[0]?.label ?? (codingCase.status === 'abgeschlossen' ? 'Fall abgeschlossen' : 'Fallabschluss prüfen')
 
   const orderedDecisions = useMemo(
     () => [...codingCase.decisions].sort((a, b) => {
@@ -242,7 +237,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
   }
 
   const finalize = () => {
-    if (openRequired.length > 0) return
+    if (openRequired.length > 0 || blockingTechnical.length > 0) return
     const next = { ...codingCase, status: 'abgeschlossen' as const }
     mutateCase(next)
     setFinalOpen(true)
@@ -255,11 +250,27 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
     })
   }
 
+  const resolveTechnicalValue = async (valueId: string, status: TechnicalCaseValue['status'], aggregateValue?: number) => {
+    const value = codingCase.technicalValues.find((item) => item.id === valueId)
+    if (!value) return
+    setRunningDecision(valueId)
+    const updatedCase: CodingCase = {
+      ...codingCase,
+      technicalValues: codingCase.technicalValues.map((item) => item.id === valueId ? { ...item, status, aggregateValue: aggregateValue ?? item.aggregateValue } : item),
+    }
+    mutateCase(updatedCase)
+    if (status === 'bestätigt' || status === 'korrigiert') {
+      const newRun = await grouperClient.group(updatedCase, `${value.label} ${status}`)
+      mutateCase({ ...updatedCase, grouperRuns: [...updatedCase.grouperRuns, newRun] })
+    }
+    setRunningDecision(undefined)
+  }
+
   return (
     <div className="page cockpit-page">
       <div className="case-title-row">
         <div>
-          <div className="page-kicker">Fall #{codingCase.id.slice(-6)} · illustrative Demodaten</div>
+          <div className="page-kicker">Fall {codingCase.caseNumber} · illustrative Demodaten</div>
           <h1>{codingCase.label}</h1>
           <p>{hospital?.name} · {profile?.siteName} · Regelpaket {codingCase.year}</p>
         </div>
@@ -268,41 +279,33 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
             <button type="button" disabled={!firstOpenDecision} onClick={() => firstOpenDecision && setCollaboration({ mode: 'consult', decisionId: firstOpenDecision.id })}><Users aria-hidden="true" /> Kodierkonsil · {codingCase.consultations.filter((item) => item.status !== 'abgeschlossen').length}</button>
             <button type="button" disabled={!firstOpenDecision} onClick={() => firstOpenDecision && setCollaboration({ mode: 'wiki', decisionId: firstOpenDecision.id })}><MessageCircle aria-hidden="true" /> Wiki-Chat · {codingCase.wikiThreads.length}</button>
           </div>
-          <button className="button secondary" type="button" onClick={onNewCase}><Plus aria-hidden="true" /> Neuer Fall</button>
+          <button className="button secondary" type="button" onClick={onNewCase}><Plus aria-hidden="true" /> Fall wechseln</button>
         </div>
       </div>
 
-      <section className="workflow-progress" aria-label={`Arbeitsfortschritt ${progress} Prozent`}>
-        <div className="progress-heading"><span>Arbeitsfortschritt</span><strong>{progress}%</strong></div>
-        <div className="progress-track"><span style={{ width: `${progress}%` }} /></div>
-        <ol>
-          {['Fall verstehen', 'Basis-DRG', 'Alternativen', 'Entgelte', 'Nachweise', 'Abschluss'].map((label, index) => (
-            <li key={label} className={completedChecks[index] ? 'done' : index === completedChecks.findIndex((item) => !item) ? 'current' : ''}>
-              <span>{completedChecks[index] ? <Check aria-hidden="true" /> : index + 1}</span>{label}
-            </li>
-          ))}
-        </ol>
+      <section className="guided-overview" aria-label="Aktueller Fallüberblick">
+        <div className="guided-hypothesis"><span>Aktuelle DRG-Hypothese</span><strong>{currentRun.drg}</strong><small>{codingCase.currentMainDiagnosis}</small></div>
+        <div className="guided-next"><span>Empfohlene nächste Aktion</span><strong>{nextAction}</strong><button type="button" onClick={() => setActiveStep(recommendedStep)}>Jetzt bearbeiten <ArrowRight aria-hidden="true" /></button></div>
+        <div className="guided-state"><span>Pflichtentscheidungen</span><strong>{openRequired.length} offen</strong><small>Iteration {currentRun.iteration} · {evidenceCount} Nachweise belegt</small></div>
       </section>
 
-      <div className="status-strip" aria-label="Fallstatus">
-        <div><span>Nachweise</span><strong>{evidenceCount} von {codingCase.decisions.length}</strong></div>
-        <div><span>Realistische Alternativen</span><strong>{openAlternatives.length}</strong></div>
-        <div><span>Offene Pflichtentscheidungen</span><strong>{openRequired.length}</strong></div>
-        <div><span>Aktueller Grouper-Lauf</span><strong>Iteration {currentRun.iteration}</strong></div>
+      <TreatmentRibbon codingCase={codingCase} compact />
+
+      <nav className="coding-step-nav" aria-label="Kodierschritte">
+        {['Fall einordnen', 'Basis-DRG', 'Prüfungen', 'Entgelte', 'Abschluss'].map((label, index) => {
+          const step = index + 1
+          return <button key={label} type="button" className={activeStep === step ? 'active' : ''} aria-current={activeStep === step ? 'step' : undefined} onClick={() => setActiveStep(step)}><span>{stepStates[index] ? <Check aria-hidden="true" /> : step}</span><strong>{label}</strong>{step === recommendedStep && activeStep !== step && <small>Empfohlen</small>}</button>
+        })}
+      </nav>
+
+      <div className="case-tools">
+        <button type="button" onClick={() => setDocumentMapOpen(true)}><Map aria-hidden="true" /><span><strong>Dokumentenlandkarte</strong><small>{codingCase.documentMap.length} eingeordnet · {codingCase.documentMap.filter((item) => item.priority === 'jetzt').length} jetzt prüfen</small></span><ArrowRight aria-hidden="true" /></button>
+        <button type="button" onClick={() => setHistoryOpen(true)}><History aria-hidden="true" /><span><strong>Iterationen</strong><small>{codingCase.grouperRuns.length} Grouper-Läufe · Historie bleibt erhalten</small></span><ArrowRight aria-hidden="true" /></button>
       </div>
 
-      <DocumentLandscape
-        codingCase={codingCase}
-        onOpenDecision={(decisionId) => {
-          setActiveDecision(decisionId)
-          window.setTimeout(() => document.getElementById('checks-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
-        }}
-        onOpenCollaboration={(mode, decisionId) => setCollaboration({ mode, decisionId })}
-        onConfirmReview={(documentId) => void confirmDocumentReview(documentId)}
-        kisGuides={profile?.kisGuides ?? []}
-      />
+      {documentMapOpen && <div className="fullscreen-backdrop" role="presentation" onMouseDown={() => setDocumentMapOpen(false)}><section className="fullscreen-detail" role="dialog" aria-modal="true" aria-label="Dokumentenlandkarte" onMouseDown={(event) => event.stopPropagation()}><div className="fullscreen-header"><div><div className="page-kicker">Second Screen · {codingCase.caseNumber}</div><h2>Dokumentenlandkarte</h2></div><button className="icon-button" type="button" aria-label="Schließen" onClick={() => setDocumentMapOpen(false)}><X aria-hidden="true" /></button></div><DocumentLandscape codingCase={codingCase} onOpenDecision={(decisionId) => { setActiveDecision(decisionId); setActiveStep(3); setDocumentMapOpen(false) }} onOpenCollaboration={(mode, decisionId) => setCollaboration({ mode, decisionId })} onConfirmReview={(documentId) => void confirmDocumentReview(documentId)} kisGuides={profile?.kisGuides ?? []} /></section></div>}
 
-      <section className="validation-stage" aria-labelledby="validation-title">
+      <section className="validation-stage guided-step" aria-labelledby="validation-title" hidden={activeStep !== 1}>
         <div className="section-title-row">
           <div><div className="page-kicker">Validierung 1 · Fall einordnen</div><h2 id="validation-title">Was für ein Fall ist das?</h2></div>
           <span>Technische Ersteinschätzung · manuell änderbar</span>
@@ -361,9 +364,9 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
         </div>
       </section>
 
-      <div className="cockpit-grid">
+      <div className="cockpit-grid guided-cockpit-grid">
         <div className="cockpit-main">
-          <section className="hypothesis-panel" aria-labelledby="hypothesis-title">
+          <section className="hypothesis-panel guided-step" aria-labelledby="hypothesis-title" hidden={activeStep !== 2}>
             <div className="section-title-row">
               <div><div className="page-kicker">Aktuelle Arbeitshypothese</div><h2 id="hypothesis-title">{currentRun.drg}</h2></div>
               <span className="status-pill status-wahrscheinlich">Wahrscheinlich</span>
@@ -372,15 +375,16 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
             <p><strong>Führender Pfad:</strong> {codingCase.scenario === 'pulmo-onko' ? 'Pulmologische Diagnostik → onkologische Therapie' : 'Konservative pneumologische Behandlung'}</p>
             <div className="code-row">{codingCase.currentProcedures.map((procedure) => <code key={procedure}>{procedure}</code>)}</div>
             <div className="grouper-note"><Sparkles aria-hidden="true" /><span>{currentRun.reason} PCCL {currentRun.pccL}.{currentRun.extras.map((extra) => ` ${extra}`)}</span></div>
+            {firstOpenDecision?.id === 'decision-main' && <button className="button primary" type="button" onClick={() => { setActiveDecision(firstOpenDecision.id); setActiveStep(3) }}>Hauptdiagnose belegen <ArrowRight aria-hidden="true" /></button>}
           </section>
 
-          <section aria-labelledby="checks-title">
+          <section className="guided-step" aria-labelledby="checks-title" hidden={activeStep !== 3}>
             <div className="section-title-row">
               <div><div className="page-kicker">Nächster sinnvoller Prüfpunkt</div><h2 id="checks-title">Offene Entscheidungen</h2></div>
               <span>{orderedDecisions.filter((item) => !['belegt', 'ausgeschlossen'].includes(item.status)).length} offen</span>
             </div>
             <div className="decision-list">
-              {orderedDecisions.map((decision) => {
+              {orderedDecisions.filter((decision) => !['belegt', 'ausgeschlossen'].includes(decision.status)).map((decision) => {
                 const selected = activeDecision === decision.id
                 const resolved = ['belegt', 'ausgeschlossen'].includes(decision.status)
                 const route = getCollaborationRoute(decision)
@@ -435,9 +439,10 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
                 )
               })}
             </div>
+            {orderedDecisions.some((decision) => ['belegt', 'ausgeschlossen'].includes(decision.status)) && <details className="resolved-decision-summary"><summary>{orderedDecisions.filter((decision) => ['belegt', 'ausgeschlossen'].includes(decision.status)).length} erledigte Entscheidungen</summary><ul>{orderedDecisions.filter((decision) => ['belegt', 'ausgeschlossen'].includes(decision.status)).map((decision) => <li key={decision.id}><Check aria-hidden="true" /><span><strong>{decision.title}</strong><small>{decision.resolution ?? statusLabels[decision.status]}</small></span></li>)}</ul></details>}
           </section>
 
-          <section className="entitlement-section" aria-labelledby="entitlement-title">
+          <section className="entitlement-section guided-step" aria-labelledby="entitlement-title" hidden={activeStep !== 4}>
             <div className="section-title-row"><div><div className="page-kicker">Paralleler Prüfpfad</div><h2 id="entitlement-title">Entgelte und Komplexbehandlungen</h2></div></div>
             <div className="check-grid">
               <CheckRow label="DRG" detail={`${currentRun.drg}, Basis ${currentRun.baseDrg}`} status="geprüft" />
@@ -447,6 +452,10 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
               <CheckRow label="Altersregeln" detail={`Alter bei Aufnahme: ${codingCase.age}`} status="geprüft" />
               <CheckRow label="Hybrid-DRG" detail="Demo-Abgrenzung geprüft" status="geprüft" />
             </div>
+            <section className="technical-values" aria-labelledby="technical-values-title">
+              <div className="section-title-row"><div><div className="page-kicker">Strukturierte Grouper-Eingaben</div><h3 id="technical-values-title">Technische Fallparameter</h3></div><span>{unresolvedTechnical.length} zu bestätigen</span></div>
+              {codingCase.technicalValues.length > 0 ? codingCase.technicalValues.map((value) => <TechnicalValueRow key={value.id} value={value} running={runningDecision === value.id} onResolve={(status, aggregateValue) => void resolveTechnicalValue(value.id, status, aggregateValue)} />) : <div className="technical-empty"><Check aria-hidden="true" /> Keine zusätzlichen technischen Werte importiert.</div>}
+            </section>
             <button className="mbeg-check" type="button" onClick={() => setMbegOpen(true)}>
               <span className={`check-icon ${codingCase.medicalJustification.reviewed ? 'done' : ''}`}><ShieldCheck aria-hidden="true" /></span>
               <span><small>Optionaler Parallelpfad</small><strong>Medizinische Begründung vollstationär</strong><span>{codingCase.medicalJustification.reviewed ? 'Fachlich geprüft' : codingCase.medicalJustification.status === 'entwurf-belegbar' ? 'Entwurf belegbar' : 'Fachliche Prüfung nötig'}</span></span>
@@ -455,34 +464,17 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
           </section>
         </div>
 
-        <aside className="iteration-sidebar" aria-labelledby="history-title">
-          <div className="section-title-row"><div><div className="page-kicker">Nicht überschrieben</div><h2 id="history-title">Iterationen</h2></div><History aria-hidden="true" /></div>
-          <ol className="iteration-list">
-            {codingCase.grouperRuns.slice().reverse().map((run, index) => (
-              <li key={run.id} className={index === 0 ? 'current' : ''}>
-                <span className="iteration-node">{run.iteration}</span>
-                <div><strong>{run.drg}</strong><small>{new Date(run.timestamp).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</small><p>{run.reason}</p>{run.changed && <span className="mini-change"><GitBranch aria-hidden="true" /> Pfad geändert</span>}</div>
-              </li>
-            ))}
-          </ol>
-          <div className="loop-explainer" aria-label="Iterative Arbeitsweise">
-            <span>Hypothese</span><ArrowRight aria-hidden="true" /><span>Groupen</span><ArrowRight aria-hidden="true" /><span>Belegen</span><RotateCw aria-hidden="true" />
-          </div>
-          <div className="sidebar-block">
-            <button className="text-button" type="button" onClick={() => setShowAllDocuments((value) => !value)}>
-              <FileCheck2 aria-hidden="true" /> {codingCase.documents.length} Dokumente <ChevronDown aria-hidden="true" />
-            </button>
-            {showAllDocuments && <ul className="compact-list">{codingCase.documents.map((document) => <li key={document.id}><span>{document.name}</span><small>{document.supports ?? 'Initialer Upload'}</small></li>)}</ul>}
-          </div>
-        </aside>
       </div>
 
+      {activeStep < 5 && <div className="guided-step-footer"><button className="button secondary" type="button" disabled={activeStep === 1} onClick={() => setActiveStep((step) => Math.max(1, step - 1))}>Zurück</button><span>Schritt {activeStep} von 5</span><button className="button primary" type="button" onClick={() => setActiveStep((step) => Math.min(5, step + 1))}>Weiter <ArrowRight aria-hidden="true" /></button></div>}
+
+      <div className="guided-step completion-step" hidden={activeStep !== 5}>
       <section className="completion-bar" aria-label="Fallabschluss">
         <div>
-          {openRequired.length > 0 ? <LockKeyhole aria-hidden="true" /> : <Check aria-hidden="true" />}
-          <span><strong>{openRequired.length > 0 ? 'Abschluss noch gesperrt' : 'Pflichtprüfungen abgeschlossen'}</strong><small>{openRequired.length > 0 ? `${openRequired.length} Pflichtentscheidungen sind offen.` : `${openAlternatives.length} unkritische Restunsicherheiten werden dokumentiert.`}</small></span>
+          {openRequired.length > 0 || blockingTechnical.length > 0 ? <LockKeyhole aria-hidden="true" /> : <Check aria-hidden="true" />}
+          <span><strong>{openRequired.length > 0 || blockingTechnical.length > 0 ? 'Abschluss noch gesperrt' : 'Pflichtprüfungen abgeschlossen'}</strong><small>{openRequired.length > 0 || blockingTechnical.length > 0 ? `${openRequired.length} Pflichtentscheidungen und ${blockingTechnical.length} technische Grouper-Werte sind offen.` : `${openAlternatives.length} unkritische Restunsicherheiten werden dokumentiert.`}</small></span>
         </div>
-        <button className="button primary" type="button" disabled={openRequired.length > 0} onClick={finalize}>Abschlussvorschlag <ArrowRight aria-hidden="true" /></button>
+        <button className="button primary" type="button" disabled={openRequired.length > 0 || blockingTechnical.length > 0} onClick={finalize}>Abschlussvorschlag <ArrowRight aria-hidden="true" /></button>
       </section>
 
       {finalOpen && (
@@ -501,6 +493,18 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
           </details>
           <p className="demo-disclaimer">Dieser Vorschlag nutzt illustrative Demodaten und ist nicht zur Abrechnung bestimmt.</p>
         </section>
+      )}
+      </div>
+      {historyOpen && (
+        <div className="drawer-backdrop" role="presentation" onMouseDown={() => setHistoryOpen(false)}>
+          <aside className="collaboration-drawer history-drawer" role="dialog" aria-modal="true" aria-labelledby="history-drawer-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="drawer-header"><div><div className="page-kicker">Nicht überschrieben · {codingCase.caseNumber}</div><h2 id="history-drawer-title">Grouper-Iterationen</h2></div><button className="icon-button" type="button" aria-label="Schließen" onClick={() => setHistoryOpen(false)}><X aria-hidden="true" /></button></div>
+            <div className="loop-explainer" aria-label="Iterative Arbeitsweise"><span>Hypothese</span><ArrowRight aria-hidden="true" /><span>Groupen</span><ArrowRight aria-hidden="true" /><span>Belegen</span><RotateCw aria-hidden="true" /></div>
+            <ol className="iteration-list">
+              {codingCase.grouperRuns.slice().reverse().map((run, index) => <li key={run.id} className={index === 0 ? 'current' : ''}><span className="iteration-node">{run.iteration}</span><div><strong>{run.drg}</strong><small>{new Date(run.timestamp).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</small><p>{run.reason}</p>{run.changed && <span className="mini-change">Pfad geändert</span>}</div></li>)}
+            </ol>
+          </aside>
+        </div>
       )}
       {collaboration && (() => {
         const decision = codingCase.decisions.find((item) => item.id === collaboration.decisionId)
@@ -542,4 +546,28 @@ function CheckRow({ label, detail, status }: { label: string; detail: string; st
       <span className={`status-pill status-${status === 'geprüft' ? 'belegt' : 'ungeklärt'}`}>{status === 'geprüft' ? 'Geprüft' : 'Offen'}</span>
     </div>
   )
+}
+
+function TechnicalValueRow({ value, running, onResolve }: { value: TechnicalCaseValue; running: boolean; onResolve: (status: TechnicalCaseValue['status'], aggregateValue?: number) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [correctedValue, setCorrectedValue] = useState(value.aggregateValue ?? 0)
+  const resolved = value.status === 'bestätigt' || value.status === 'korrigiert'
+  return (
+    <article className="technical-value-row">
+      <div className="technical-value-main">
+        <span className={`technical-value-icon ${resolved ? 'done' : ''}`}><ShieldCheck aria-hidden="true" /></span>
+        <span><small>{value.source}</small><strong>{value.label}</strong><span>{value.code && <code>{value.code}</code>}{value.aggregateValue !== undefined && <b>{value.aggregateValue} {value.unit}</b>}</span></span>
+        <span className={`status-pill status-${resolved ? 'belegt' : value.status === 'widersprüchlich' ? 'widersprüchlich' : 'wahrscheinlich'}`}>{value.status}</span>
+      </div>
+      {value.intervals.length > 0 && <div className="technical-intervals">{value.intervals.map((interval, index) => <span key={`${interval.start}-${index}`}>{formatTechnicalTime(interval.start)}{interval.end ? `–${formatTechnicalTime(interval.end)}` : ''}</span>)}</div>}
+      <p>{value.note}</p>
+      {!value.documentRequired && <div className="no-document-needed"><Check aria-hidden="true" /> Kein Dokumentenupload nötig. Herkunft und Nutzerbestätigung bleiben gespeichert.</div>}
+      {!resolved && !editing && <div className="technical-actions"><button className="button primary" type="button" disabled={running} onClick={() => onResolve('bestätigt')}>{running ? <RotateCw className="spin" aria-hidden="true" /> : <Check aria-hidden="true" />} Wert übernehmen</button><button className="button secondary" type="button" onClick={() => setEditing(true)}>Wert korrigieren</button><button className="button secondary" type="button" onClick={() => onResolve('unklar')}>Unklar markieren</button></div>}
+      {editing && <div className="technical-correction"><label>Korrigierter Wert<div><input type="number" min="0" value={correctedValue} onChange={(event) => setCorrectedValue(Number(event.target.value))} /><span>{value.unit}</span></div></label><div><button className="button secondary" type="button" onClick={() => setEditing(false)}>Abbrechen</button><button className="button primary" type="button" onClick={() => onResolve('korrigiert', correctedValue)}>Korrektur übernehmen</button></div></div>}
+    </article>
+  )
+}
+
+function formatTechnicalTime(value: string) {
+  return new Date(value).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 }

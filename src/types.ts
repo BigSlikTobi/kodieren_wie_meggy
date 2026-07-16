@@ -1,4 +1,4 @@
-export type View = 'start' | 'case' | 'hospitals' | 'rules'
+export type View = 'worklist' | 'start' | 'intake' | 'case' | 'hospitals' | 'rules'
 export type CaseComplexity = 'standardnah' | 'prüfbedürftig' | 'komplex'
 export type EvidenceStatus =
   | 'belegt'
@@ -55,6 +55,35 @@ export interface HospitalProfile {
   name: string
   city: string
   profiles: SiteYearProfile[]
+}
+
+export type IntakeSourceKind = 'batch' | 'screenshot' | 'arztbrief' | 'manuell'
+export type SourceValidationStatus = 'importiert' | 'erkannt' | 'bestätigt' | 'widersprüchlich'
+
+export interface IntakeSource {
+  id: string
+  kind: IntakeSourceKind
+  label: string
+  status: SourceValidationStatus
+  detail: string
+  addedAt: string
+}
+
+export interface BatchCaseRecord {
+  id: string
+  caseNumber: string
+  hospitalId: string
+  siteId: string
+  year: number
+  admissionDate: string
+  dischargeDate: string
+  age: number
+  careForm: CodingCase['careForm']
+  scenario: CodingCase['scenario']
+  department: string
+  codingSummary: string
+  importStatus: 'bereit' | 'unvollständig' | 'geöffnet'
+  technicalValues: TechnicalCaseValue[]
 }
 
 export interface TreatmentEvent {
@@ -135,6 +164,28 @@ export interface GrouperRun {
   extras: string[]
 }
 
+export type TechnicalValueStatus = 'importiert' | 'bestätigt' | 'korrigiert' | 'unklar' | 'widersprüchlich'
+
+export interface TechnicalInterval {
+  start: string
+  end?: string
+}
+
+export interface TechnicalCaseValue {
+  id: string
+  kind: 'beatmung' | 'komplexbehandlung' | 'isolation' | 'sonstiges'
+  label: string
+  code?: string
+  aggregateValue?: number
+  unit?: 'Stunden' | 'Tage' | 'Punkte'
+  intervals: TechnicalInterval[]
+  source: string
+  status: TechnicalValueStatus
+  groupingRelevant: boolean
+  documentRequired: boolean
+  note: string
+}
+
 export interface DkrMatch {
   id: string
   title: string
@@ -184,10 +235,13 @@ export interface MedicalJustification {
 
 export interface CodingCase {
   id: string
+  caseNumber: string
   label: string
   hospitalId: string
   siteId: string
   year: number
+  admissionDate?: string
+  dischargeDate?: string
   age: number
   stayDays: number
   careForm: 'Normalstation' | 'Normal- und Intensivstation'
@@ -204,6 +258,8 @@ export interface CodingCase {
   consultations: CodingConsultation[]
   wikiThreads: WikiThread[]
   scenario: 'pulmo-onko' | 'standard'
+  intakeConfirmed: boolean
+  intakeSources: IntakeSource[]
   status: 'offen' | 'abgeschlossen'
   currentMainDiagnosis: string
   currentProcedures: string[]
@@ -212,6 +268,7 @@ export interface CodingCase {
   documentMap: DocumentMapItem[]
   decisions: CaseDecision[]
   grouperRuns: GrouperRun[]
+  technicalValues: TechnicalCaseValue[]
   medicalJustification: MedicalJustification
   createdAt: string
 }
@@ -238,18 +295,24 @@ export interface RuleDefinition {
 
 export interface AppData {
   hospitals: HospitalProfile[]
+  batchCases: BatchCaseRecord[]
   cases: CodingCase[]
   rules: RuleDefinition[]
   currentCaseId?: string
 }
 
 export interface NewCaseInput {
+  caseNumber?: string
   hospitalId: string
   siteId: string
   year: number
+  admissionDate?: string
+  dischargeDate?: string
   age: number
   stayDays: number
   careForm: CodingCase['careForm']
   scenario: CodingCase['scenario']
   files: string[]
+  technicalValues?: TechnicalCaseValue[]
+  intakeSources?: IntakeSource[]
 }

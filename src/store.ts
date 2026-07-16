@@ -12,6 +12,7 @@ function normalizeData(value: AppData): AppData {
   const fresh = cloneInitialData()
   return {
     ...value,
+    batchCases: value.batchCases ?? fresh.batchCases,
     hospitals: value.hospitals.map((hospital) => ({
       ...hospital,
       profiles: hospital.profiles.map((profile) => {
@@ -23,6 +24,10 @@ function normalizeData(value: AppData): AppData {
     })),
     cases: value.cases.map((codingCase) => ({
       ...codingCase,
+      caseNumber: codingCase.caseNumber ?? `ALT-${codingCase.id.slice(-6)}`,
+      intakeConfirmed: codingCase.intakeConfirmed ?? false,
+      intakeSources: codingCase.intakeSources ?? [{ id: `source-${codingCase.id}`, kind: 'manuell', label: 'Bestehender Demofall', status: 'bestätigt', detail: 'Aus lokal gespeichertem Fallstand übernommen.', addedAt: codingCase.createdAt }],
+      technicalValues: codingCase.technicalValues ?? [],
       documentMap: (codingCase.documentMap ?? []).map((document) => ({
         ...document,
         outcomeDimensions: document.outcomeDimensions ?? {

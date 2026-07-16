@@ -4,6 +4,14 @@ import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
 import App from './App'
 
+async function openManualCockpit(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('button', { name: /Einzelfall anlegen/i }))
+  await user.click(screen.getByRole('button', { name: /Weiter/i }))
+  await user.click(screen.getByRole('button', { name: /Weiter/i }))
+  await user.click(screen.getByRole('button', { name: /Fall analysieren/i }))
+  await user.click(screen.getByRole('button', { name: /Fallbasis bestätigen/i }))
+}
+
 describe('Kodierpfad prototype', () => {
   afterEach(() => cleanup())
 
@@ -15,6 +23,8 @@ describe('Kodierpfad prototype', () => {
     const user = userEvent.setup()
     render(<App />)
 
+    expect(screen.getByRole('heading', { name: /Welchen Fall bearbeitest Du/i })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Einzelfall anlegen/i }))
     expect(screen.getByRole('heading', { name: /In drei Schritten/i })).toBeInTheDocument()
     expect(screen.getByText(/Profil aktiv/i)).toBeInTheDocument()
 
@@ -25,23 +35,26 @@ describe('Kodierpfad prototype', () => {
     expect(screen.getByRole('heading', { name: /Bereit für die erste Iteration/i })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /Fall analysieren/i }))
+    expect(screen.getByRole('heading', { name: /Stimmt der Behandlungsverlauf/i })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Fallbasis bestätigen/i }))
     expect(screen.getByRole('heading', { name: /Pulmologisch-onkologischer Demofall/i })).toBeInTheDocument()
     expect(screen.getByText('Typisch für dieses Haus')).toBeInTheDocument()
     expect(screen.getByText('Schwieriger Fall')).toBeInTheDocument()
     expect(screen.getByText('1 spezifische DKR erkannt')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Falllandkarte' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Falllandkarte' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Dokumentenlandkarte/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Kodierkonsil · 0/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Wiki-Chat · 0/i })).toBeInTheDocument()
-    expect(screen.getAllByText(/Iteration 1/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(/Iteration 1/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Abschluss/i }))
     expect(screen.getByRole('button', { name: /Abschlussvorschlag/i })).toBeDisabled()
   })
 
   it('sortiert Verlaufs- und Ereignisberichte auf der Falllandkarte', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await user.click(screen.getByRole('button', { name: /Weiter/i }))
-    await user.click(screen.getByRole('button', { name: /Weiter/i }))
-    await user.click(screen.getByRole('button', { name: /Fall analysieren/i }))
+    await openManualCockpit(user)
+    await user.click(screen.getByRole('button', { name: /Dokumentenlandkarte/i }))
 
     expect(screen.getByText('Verlaufsberichte')).toBeInTheDocument()
     expect(screen.getByText('Ereignisse und Nachweise')).toBeInTheDocument()
@@ -83,9 +96,7 @@ describe('Kodierpfad prototype', () => {
   it('speichert den aktuellen Stand lokal', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await user.click(screen.getByRole('button', { name: /Weiter/i }))
-    await user.click(screen.getByRole('button', { name: /Weiter/i }))
-    await user.click(screen.getByRole('button', { name: /Fall analysieren/i }))
+    await openManualCockpit(user)
 
     const stored = JSON.parse(localStorage.getItem('kodierpfad-demo-v4') ?? '{}') as { cases?: unknown[] }
     expect(stored.cases).toHaveLength(1)
@@ -94,9 +105,8 @@ describe('Kodierpfad prototype', () => {
   it('leitet eine fachfremde gruppierungsrelevante Frage ins Kodierkonsil', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await user.click(screen.getByRole('button', { name: /Weiter/i }))
-    await user.click(screen.getByRole('button', { name: /Weiter/i }))
-    await user.click(screen.getByRole('button', { name: /Fall analysieren/i }))
+    await openManualCockpit(user)
+    await user.click(screen.getByRole('button', { name: /Prüfungen/i }))
 
     expect(screen.getByText('Geführte Eigenprüfung')).toBeInTheDocument()
     await user.selectOptions(screen.getByLabelText(/Fachkenntnis für Hauptdiagnose/i), 'fremd')
@@ -117,9 +127,8 @@ describe('Kodierpfad prototype', () => {
   it('nutzt den Wiki-Chat nur als Wissenshilfe und löst keine Fallentscheidung', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await user.click(screen.getByRole('button', { name: /Weiter/i }))
-    await user.click(screen.getByRole('button', { name: /Weiter/i }))
-    await user.click(screen.getByRole('button', { name: /Fall analysieren/i }))
+    await openManualCockpit(user)
+    await user.click(screen.getByRole('button', { name: /Prüfungen/i }))
 
     await user.click(screen.getByRole('button', { name: /Palliativmedizinische Komplexbehandlung ausschließen/i }))
     expect(screen.getByText('Wiki-Chat zur Einordnung')).toBeInTheDocument()
@@ -135,9 +144,7 @@ describe('Kodierpfad prototype', () => {
   it('erlaubt die manuelle Korrektur von Typik und Schwierigkeit', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await user.click(screen.getByRole('button', { name: /Weiter/i }))
-    await user.click(screen.getByRole('button', { name: /Weiter/i }))
-    await user.click(screen.getByRole('button', { name: /Fall analysieren/i }))
+    await openManualCockpit(user)
 
     await user.selectOptions(screen.getByLabelText('Krankenhaustypik manuell ändern'), 'untypisch')
     await user.selectOptions(screen.getByLabelText('Fallschwierigkeit manuell ändern'), 'einfach')
@@ -150,17 +157,16 @@ describe('Kodierpfad prototype', () => {
   it('erzeugt Iterationen und entsperrt den Abschluss nach Pflichtnachweisen', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await user.click(screen.getByRole('button', { name: /Weiter/i }))
-    await user.click(screen.getByRole('button', { name: /Weiter/i }))
-    await user.click(screen.getByRole('button', { name: /Fall analysieren/i }))
+    await openManualCockpit(user)
+    await user.click(screen.getByRole('button', { name: /Prüfungen/i }))
 
     await user.upload(screen.getByLabelText(/Nachweis hochladen/i), new File(['demo'], 'epikrise.pdf', { type: 'application/pdf' }))
     await waitFor(() => expect(screen.getAllByText(/Iteration 2/i).length).toBeGreaterThan(0))
 
     await user.click(screen.getByRole('button', { name: /Systemische Tumortherapie prüfen/i }))
     await user.upload(screen.getByLabelText(/Nachweis hochladen/i), new File(['demo'], 'therapie.pdf', { type: 'application/pdf' }))
+    await user.click(screen.getByRole('button', { name: /Abschluss/i }))
     await waitFor(() => expect(screen.getByRole('button', { name: /Abschlussvorschlag/i })).toBeEnabled())
-
     await user.click(screen.getByRole('button', { name: /Abschlussvorschlag/i }))
     expect(screen.getByRole('heading', { name: /Fallabschluss/i })).toBeInTheDocument()
   })
@@ -189,9 +195,8 @@ describe('Kodierpfad prototype', () => {
   it('zeigt Ergebnisdimensionen und einen beleggebundenen MBEG-Entwurf', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await user.click(screen.getByRole('button', { name: /Weiter/i }))
-    await user.click(screen.getByRole('button', { name: /Weiter/i }))
-    await user.click(screen.getByRole('button', { name: /Fall analysieren/i }))
+    await openManualCockpit(user)
+    await user.click(screen.getByRole('button', { name: /Dokumentenlandkarte/i }))
 
     await user.click(screen.getByRole('button', { name: 'Bronchoskopie- und Biopsiebericht, Vorprüfung · nachvalidieren, Tag 3' }))
     const documentDialog = screen.getByRole('dialog', { name: 'Dokument einordnen' })
@@ -201,11 +206,51 @@ describe('Kodierpfad prototype', () => {
     expect(within(documentDialog).getByText('Befundportal')).toBeInTheDocument()
     await user.click(within(documentDialog).getByRole('button', { name: 'Schließen' }))
 
+    await user.click(screen.getByRole('button', { name: /Schließen/i }))
+    await user.click(screen.getByRole('button', { name: /Entgelte/i }))
     await user.click(screen.getByRole('button', { name: /Medizinische Begründung vollstationär/i }))
     const mbegDialog = screen.getByRole('dialog', { name: 'Medizinische Begründung' })
     expect(within(mbegDialog).getByText(/Keine automatische Übermittlung/i)).toBeInTheDocument()
     expect(within(mbegDialog).getByText(/invasiven bronchoskopischen Diagnostik/i)).toBeInTheDocument()
     await user.click(within(mbegDialog).getByRole('button', { name: /Fachlich geprüft markieren/i }))
     expect(within(mbegDialog).getByText('Fachlich geprüft')).toBeInTheDocument()
+  })
+
+  it('findet einen Batch-Fall über die pseudonymisierte Fallnummer und bestätigt seine Fallbasis', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.type(screen.getByPlaceholderText(/Fallnummer eingeben/i), 'P-2026-004233')
+    expect(screen.getByText('1 Treffer')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Fallbasis öffnen/i }))
+
+    expect(screen.getByText(/Fallbasis · P-2026-004233/i)).toBeInTheDocument()
+    expect(screen.getByText('Krankenhaus-Batch')).toBeInTheDocument()
+    expect(screen.getByText(/Intensivmedizinische Behandlung/i)).toBeInTheDocument()
+    await user.upload(screen.getByLabelText(/Screenshot verwenden/i), new File(['demo'], 'stationsverlauf.png', { type: 'image/png' }))
+    expect(screen.getByText('stationsverlauf.png')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Fallbasis bestätigen/i }))
+    expect(screen.getByText(/Fall P-2026-004233/i)).toBeInTheDocument()
+  })
+
+  it('übernimmt technische Grouper-Werte ohne unnötigen Dokumentenupload', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await user.type(screen.getByPlaceholderText(/Fallnummer eingeben/i), 'P-2026-004233')
+    await user.click(screen.getByRole('button', { name: /Fallbasis öffnen/i }))
+    await user.click(screen.getByRole('button', { name: /Fallbasis bestätigen/i }))
+    await user.click(screen.getByRole('button', { name: /Entgelte/i }))
+
+    const technicalSection = screen.getByRole('heading', { name: /Technische Fallparameter/i }).closest('section')!
+    expect(technicalSection).toBeInTheDocument()
+    expect(screen.getAllByText(/96 Stunden/i).length).toBeGreaterThan(0)
+    expect(screen.getByText(/Kein Dokumentenupload nötig/i)).toBeInTheDocument()
+    expect(within(technicalSection).queryByLabelText(/Nachweis hochladen/i)).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Wert übernehmen/i }))
+    await waitFor(() => expect(screen.getByText(/Iteration 2/i)).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /Iterationen/i }))
+    expect(screen.getByRole('dialog', { name: /Grouper-Iterationen/i })).toHaveTextContent('Beatmungszeit aus Intervallen bestätigt')
   })
 })

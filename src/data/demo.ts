@@ -1,4 +1,4 @@
-import type { AppData, CodingCase, DocumentOutcomeDimensions, HospitalProfile, KisGuide, NewCaseInput, OutcomeDimensionStatus, RuleDefinition } from '../types'
+import type { AppData, BatchCaseRecord, CodingCase, DocumentOutcomeDimensions, HospitalProfile, KisGuide, NewCaseInput, OutcomeDimensionStatus, RuleDefinition, TechnicalCaseValue } from '../types'
 
 const isoNow = () => new Date().toISOString()
 
@@ -144,6 +144,89 @@ export const demoHospitals: HospitalProfile[] = [
   },
 ]
 
+const ventilationIntervals: TechnicalCaseValue = {
+  id: 'tech-ventilation-intervals',
+  kind: 'beatmung',
+  label: 'Beatmungszeit aus Intervallen',
+  aggregateValue: 96,
+  unit: 'Stunden',
+  intervals: [
+    { start: '2026-07-10T11:00', end: '2026-07-12T15:00' },
+    { start: '2026-07-13T08:00', end: '2026-07-15T04:00' },
+  ],
+  source: 'Strukturierter PDMS-Import · Demo',
+  status: 'importiert',
+  groupingRelevant: true,
+  documentRequired: false,
+  note: 'Die Summe wird aus gelieferten Intervallen gebildet. Keine Beatmungskurve hochladen.',
+}
+
+const isolationProcedure: TechnicalCaseValue = {
+  id: 'tech-isolation',
+  kind: 'isolation',
+  label: 'Non-MRE-Isolation auf nicht spezieller Isoliereinheit',
+  code: '8-98g.11 · illustrative Demoangabe',
+  aggregateValue: 8,
+  unit: 'Tage',
+  intervals: [{ start: '2026-07-10T00:00', end: '2026-07-17T23:59' }],
+  source: 'Strukturierter Leistungsimport · Demo',
+  status: 'importiert',
+  groupingRelevant: true,
+  documentRequired: false,
+  note: 'OPS und Zeitraum wurden fertig geliefert. Jahres- und Strukturprüfung bleiben aktiv.',
+}
+
+export const demoBatchCases: BatchCaseRecord[] = [
+  {
+    id: 'batch-4218',
+    caseNumber: 'P-2026-004218',
+    hospitalId: 'h-marien',
+    siteId: 'marien-mitte',
+    year: 2026,
+    admissionDate: '2026-07-02',
+    dischargeDate: '2026-07-24',
+    age: 67,
+    careForm: 'Normalstation',
+    scenario: 'pulmo-onko',
+    department: 'Pneumologie → Onkologie',
+    codingSummary: 'C34.9 · 1-6xx · 8-54x · illustrative Demodaten',
+    importStatus: 'bereit',
+    technicalValues: [isolationProcedure],
+  },
+  {
+    id: 'batch-4233',
+    caseNumber: 'P-2026-004233',
+    hospitalId: 'h-hanse',
+    siteId: 'hanse-west',
+    year: 2026,
+    admissionDate: '2026-07-08',
+    dischargeDate: '2026-07-22',
+    age: 72,
+    careForm: 'Normal- und Intensivstation',
+    scenario: 'pulmo-onko',
+    department: 'Pneumologie → Intensivmedizin → Onkologie',
+    codingSummary: 'Beatmungsstunden und Intensivaufenthalt vorkodiert · Demo',
+    importStatus: 'unvollständig',
+    technicalValues: [ventilationIntervals],
+  },
+  {
+    id: 'batch-4251',
+    caseNumber: 'P-2026-004251',
+    hospitalId: 'h-marien',
+    siteId: 'marien-mitte',
+    year: 2026,
+    admissionDate: '2026-07-14',
+    dischargeDate: '2026-07-20',
+    age: 49,
+    careForm: 'Normalstation',
+    scenario: 'standard',
+    department: 'Pneumologie',
+    codingSummary: 'J18.9 · konservativer Verlauf · illustrative Demodaten',
+    importStatus: 'bereit',
+    technicalValues: [],
+  },
+]
+
 export const demoRules: RuleDefinition[] = [
   {
     id: 'rule-mbeg-intensity',
@@ -227,6 +310,9 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
         { id: 't1', day: 1, department: 'Pneumologie', type: 'Aufnahme' as const, label: 'Aufnahme mit thorakalem Befund' },
         { id: 't2', day: 2, department: 'Pneumologie', type: 'Diagnostik' as const, label: 'Bildgebung und Befundbewertung' },
         { id: 't3', day: 3, department: 'Pneumologie', type: 'Eingriff' as const, label: 'Bronchoskopische Biopsie' },
+        ...(input.careForm === 'Normal- und Intensivstation'
+          ? [{ id: 't-intensive', day: 4, endDay: 7, department: 'Intensivmedizin', type: 'Intensiv' as const, label: 'Intensivmedizinische Behandlung' }]
+          : []),
         { id: 't4', day: 9, department: 'Onkologie', type: 'Verlegung' as const, label: 'Verlegung nach Histologie' },
         { id: 't5', day: 11, endDay: 20, department: 'Onkologie', type: 'Therapie' as const, label: 'Systemische Tumortherapie' },
         { id: 't6', day: input.stayDays, department: 'Onkologie', type: 'Entlassung' as const, label: 'Entlassung' },
@@ -414,10 +500,13 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
 
   return {
     id,
+    caseNumber: input.caseNumber ?? `MAN-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`,
     label: isComplex ? 'Pulmologisch-onkologischer Demofall' : 'Standardnaher Pneumologie-Demofall',
     hospitalId: input.hospitalId,
     siteId: input.siteId,
     year: input.year,
+    admissionDate: input.admissionDate,
+    dischargeDate: input.dischargeDate,
     age: input.age,
     stayDays: input.stayDays,
     careForm: input.careForm,
@@ -466,6 +555,11 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
     consultations: [],
     wikiThreads: [],
     scenario: input.scenario,
+    intakeConfirmed: false,
+    intakeSources: input.intakeSources ?? [
+      ...input.files.map((name, index) => ({ id: `source-file-${index}`, kind: 'arztbrief' as const, label: name, status: 'erkannt' as const, detail: 'Überschriften und Abschnitte wurden als Verlaufsvorschlag verwendet.', addedAt: isoNow() })),
+      { id: 'source-manual', kind: 'manuell' as const, label: 'Manuelle Fallangaben', status: 'bestätigt' as const, detail: 'Alter, Verweildauer und Versorgungsform wurden manuell erfasst.', addedAt: isoNow() },
+    ],
     status: 'offen',
     currentMainDiagnosis: isComplex ? 'C34.9 · Demo: Bronchialkarzinom, nicht näher bezeichnet' : 'J18.9 · Demo: Pneumonie, nicht näher bezeichnet',
     currentProcedures: isComplex
@@ -570,6 +664,7 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
         extras: [],
       },
     ],
+    technicalValues: input.technicalValues ?? [],
     medicalJustification: isComplex
       ? {
           status: 'entwurf-belegbar',
@@ -593,6 +688,7 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
 
 export const initialData: AppData = {
   hospitals: demoHospitals,
+  batchCases: demoBatchCases,
   cases: [],
   rules: demoRules,
 }

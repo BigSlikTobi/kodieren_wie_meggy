@@ -35,6 +35,9 @@ export class MockGrouperClient implements GrouperClient {
     if (trigger?.includes('ausgeschlossen')) {
       reason = 'Alternative ausgeschlossen; verbleibender DRG-Pfad stabilisiert.'
     }
+    if (trigger?.includes('bestätigt') || trigger?.includes('korrigiert')) {
+      reason = `${trigger}; technische Grouper-Eingabe aktualisiert.`
+    }
 
     return {
       id: `run-${codingCase.id}-${iteration}`,
