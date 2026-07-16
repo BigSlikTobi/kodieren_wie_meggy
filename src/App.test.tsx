@@ -47,7 +47,7 @@ describe('Kodierpfad prototype', () => {
     expect(screen.getByRole('button', { name: /Dokumentenlandkarte/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Kodierkonsil · 0/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Wiki-Chat · 0/i })).toBeInTheDocument()
-    expect(screen.getByText(/Iteration 1/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/Iteration 1/i).length).toBeGreaterThan(0)
     await user.click(screen.getByRole('button', { name: /Abschluss/i }))
     expect(screen.getByRole('button', { name: /Abschlussvorschlag/i })).toBeDisabled()
   })
@@ -154,16 +154,16 @@ describe('Kodierpfad prototype', () => {
     await openManualCockpit(user)
     await user.click(screen.getByRole('button', { name: /Prüfungen/i }))
 
-    await user.click(screen.getByRole('button', { name: /Hauptdiagnose eingeben/i }))
-    const editor = screen.getByRole('dialog', { name: 'Hauptdiagnose eingeben' })
-    expect(within(editor).getByLabelText('ICD-Kode der Hauptdiagnose')).toHaveValue('C34.9')
-    expect(within(editor).getByText(/Pflichtprüfung der Hauptdiagnose bleibt offen/i)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'ICD / OPS eingeben' }))
+    const editor = screen.getByRole('dialog', { name: 'ICD / OPS eingeben' })
+    expect(within(editor).getByLabelText('Freier ICD- oder OPS-Kode')).toHaveValue('C34.9')
+    expect(within(editor).getByText(/Prüfentscheidung bleibt offen/i)).toBeInTheDocument()
 
-    await user.clear(within(editor).getByLabelText('ICD-Kode der Hauptdiagnose'))
-    await user.type(within(editor).getByLabelText('ICD-Kode der Hauptdiagnose'), 'C34.1')
-    await user.click(within(editor).getByRole('button', { name: /Als Arbeitskode übernehmen/i }))
+    await user.clear(within(editor).getByLabelText('Freier ICD- oder OPS-Kode'))
+    await user.type(within(editor).getByLabelText('Freier ICD- oder OPS-Kode'), 'C34.1')
+    await user.click(within(editor).getByRole('button', { name: /Ändern und alles neu bewerten/i }))
 
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Hauptdiagnose eingeben' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'ICD / OPS eingeben' })).not.toBeInTheDocument())
     await waitFor(() => expect(screen.getAllByText(/Iteration 2/i).length).toBeGreaterThan(0))
     expect(screen.getAllByText(/C34.1 · Bronchialkarzinom/i).length).toBeGreaterThan(0)
     const mainDecision = screen.getByRole('button', { name: /Hauptdiagnose über den Gesamtfall belegen/i })
@@ -174,7 +174,32 @@ describe('Kodierpfad prototype', () => {
     const transfer = screen.getByRole('dialog', { name: 'Vollständige Kodierung' })
     expect(within(transfer).getByText('C34.1')).toBeInTheDocument()
     expect(within(transfer).getByText('Geändert')).toBeInTheDocument()
-    expect(within(transfer).getByText(/Quelle: Direkteingabe der Kodierfachkraft · Iteration 2/i)).toBeInTheDocument()
+    expect(within(transfer).getByText(/Quelle: Direkteingabe zur Prüfung „Hauptdiagnose über den Gesamtfall belegen“ · Iteration 2/i)).toBeInTheDocument()
+  })
+
+  it('erlaubt freie ICD- und OPS-Eingaben in jeder Prüfung und bewertet alle Hypothesen neu', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openManualCockpit(user)
+    await user.click(screen.getByRole('button', { name: /Prüfungen/i }))
+    await user.click(screen.getByRole('button', { name: /Palliativmedizinische Komplexbehandlung ausschließen/i }))
+
+    await user.click(screen.getByRole('button', { name: 'ICD / OPS eingeben' }))
+    const editor = screen.getByRole('dialog', { name: 'ICD / OPS eingeben' })
+    expect(within(editor).getByLabelText('Kodetyp für freie Kodierung')).toHaveValue('OPS')
+    await user.type(within(editor).getByLabelText('Freier ICD- oder OPS-Kode'), '8-98e.0')
+    await user.type(within(editor).getByLabelText('Beschreibung der freien Kodierung'), 'Palliativmedizinische Komplexbehandlung · Demo')
+    await user.click(within(editor).getByRole('button', { name: /Ergänzen und alles neu bewerten/i }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'ICD / OPS eingeben' })).not.toBeInTheDocument())
+    expect(screen.getAllByText('Bewertet Iteration 2')).toHaveLength(4)
+    expect(screen.getByRole('button', { name: /Palliativmedizinische Komplexbehandlung ausschließen/i })).toHaveTextContent('Wahrscheinlich')
+
+    await user.click(screen.getByRole('button', { name: /DRG & Entgelte/i }))
+    await user.click(screen.getByRole('button', { name: /Für KIS öffnen/i }))
+    const transfer = screen.getByRole('dialog', { name: 'Vollständige Kodierung' })
+    expect(within(transfer).getByText('8-98E.0')).toBeInTheDocument()
+    expect(within(transfer).getByText(/Direkteingabe zur Prüfung „Palliativmedizinische Komplexbehandlung ausschließen“ · Iteration 2/i)).toBeInTheDocument()
   })
 
   it('strukturiert, testet und genehmigt eine neue Regel', async () => {

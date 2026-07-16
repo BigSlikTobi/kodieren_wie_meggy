@@ -28,9 +28,9 @@ import type { AppData, CaseDecision, CodingCase, CodingConsultation, CodingEntry
 import { CollaborationDrawer } from './CollaborationDrawer'
 import { CodingEntryDrawer, type CodingEntryInput } from './CodingEntryDrawer'
 import { CodingTransferDrawer } from './CodingTransferDrawer'
+import { DirectCodingDrawer, type DirectCodingInput } from './DirectCodingDrawer'
 import { DocumentLandscape } from './DocumentLandscape'
 import { MedicalJustificationDrawer } from './MedicalJustificationDrawer'
-import { MainDiagnosisDrawer } from './MainDiagnosisDrawer'
 import { TreatmentRibbon } from './TreatmentRibbon'
 
 interface CaseCockpitProps {
@@ -62,7 +62,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
   const [historyOpen, setHistoryOpen] = useState(false)
   const [codingEditorDocumentId, setCodingEditorDocumentId] = useState<string>()
   const [codingTransferOpen, setCodingTransferOpen] = useState(false)
-  const [mainDiagnosisEditorOpen, setMainDiagnosisEditorOpen] = useState(false)
+  const [directCodingDecisionId, setDirectCodingDecisionId] = useState<string>()
 
   const hospital = hospitals.find((item) => item.id === codingCase.hospitalId)
   const profile = hospital?.profiles.find((item) => item.siteId === codingCase.siteId && item.year === codingCase.year)
@@ -75,7 +75,6 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
   const blockingTechnical = unresolvedTechnical.filter((value) => value.groupingRelevant)
   const codingChanges = codingCase.codingEntries.filter((entry) => entry.change !== 'unchanged')
   const activeCodingEntries = codingCase.codingEntries.filter((entry) => entry.active)
-  const activeMainDiagnosis = activeCodingEntries.find((entry) => entry.type === 'HD')
   const stepStates = [true, Boolean(currentRun), openAlternatives.length === 0, unresolvedTechnical.length === 0, codingCase.status === 'abgeschlossen']
   const recommendedStep = firstOpenDecision ? 3 : unresolvedTechnical.length > 0 ? 4 : 5
   const nextAction = firstOpenDecision?.title ?? unresolvedTechnical[0]?.label ?? (codingCase.status === 'abgeschlossen' ? 'Fall abgeschlossen' : 'Fallabschluss prüfen')
@@ -376,60 +375,88 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
     setCodingEditorDocumentId(undefined)
   }
 
-  const saveDirectMainDiagnosis = async (input: { code: string; description: string }) => {
-    setRunningDecision('main-diagnosis')
-    const existingEntry = codingCase.codingEntries.find((entry) => entry.active && entry.type === 'HD')
-    const entryId = existingEntry?.id ?? `coding-hd-${Date.now()}`
-    const description = input.description || existingEntry?.description || 'Manuell gesetzte Hauptdiagnose · illustrative Demoangabe'
-    const nextEntry: CodingEntry = existingEntry
-      ? {
-          ...existingEntry,
-          code: input.code,
-          description,
-          originalCode: existingEntry.originalCode ?? existingEntry.code,
-          originalDescription: existingEntry.originalDescription ?? existingEntry.description,
-          change: existingEntry.change === 'added' ? 'added' : 'changed',
-          origin: 'manuell',
-          reviewStatus: 'ungeprüft',
-          source: 'Direkteingabe der Kodierfachkraft',
-          evidenceDocumentId: undefined,
-          treatmentEventId: existingEntry.treatmentEventId ?? codingCase.timeline[0]?.id,
-          serviceDate: existingEntry.serviceDate ?? codingCase.admissionDate,
-          department: 'Gesamtfall',
-          assessedIteration: currentRun.iteration,
-        }
-      : {
+  const saveDirectCoding = async (input: DirectCodingInput) => {
+    const decision = codingCase.decisions.find((item) => item.id === input.decisionId)
+    const target = input.targetEntryId ? codingCase.codingEntries.find((entry) => entry.id === input.targetEntryId) : undefined
+    if (!decision || (input.action !== 'added' && !target)) return
+    setRunningDecision('direct-coding')
+    const entryId = target?.id ?? `coding-direct-${Date.now()}`
+    const source = `Direkteingabe zur Prüfung „${decision.title}“`
+    const updatedEntries: CodingEntry[] = input.action === 'added'
+      ? [...codingCase.codingEntries, {
           id: entryId,
-          type: 'HD',
+          type: input.type,
           code: input.code,
-          description,
+          description: input.description || 'Direkt erfasster Arbeitskode · illustrative Demoangabe',
           change: 'added',
           origin: 'manuell',
           reviewStatus: 'ungeprüft',
           active: true,
-          source: 'Direkteingabe der Kodierfachkraft',
-          treatmentEventId: codingCase.timeline[0]?.id,
-          serviceDate: codingCase.admissionDate,
-          department: 'Gesamtfall',
+          source,
+          treatmentEventId: input.treatmentEventId,
+          serviceDate: input.serviceDate,
+          serviceEndDate: input.serviceEndDate,
+          laterality: input.laterality,
+          quantity: input.quantity,
+          department: input.department,
           assessedIteration: currentRun.iteration,
-        }
-    const updatedEntries = existingEntry
-      ? codingCase.codingEntries.map((entry) => entry.id === existingEntry.id ? nextEntry : entry)
-      : [...codingCase.codingEntries, nextEntry]
+        }]
+      : codingCase.codingEntries.map((entry) => {
+          if (entry.id !== target!.id) return entry
+          if (input.action === 'deleted') return {
+            ...entry,
+            code: entry.originalCode ?? entry.code,
+            description: entry.originalDescription ?? entry.description,
+            originalCode: entry.originalCode ?? entry.code,
+            originalDescription: entry.originalDescription ?? entry.description,
+            change: 'deleted',
+            origin: 'manuell',
+            reviewStatus: 'ungeprüft',
+            active: false,
+            source,
+            evidenceDocumentId: undefined,
+            assessedIteration: currentRun.iteration,
+          }
+          return {
+            ...entry,
+            code: input.code,
+            description: input.description || entry.description,
+            originalCode: entry.originalCode ?? entry.code,
+            originalDescription: entry.originalDescription ?? entry.description,
+            change: entry.change === 'added' ? 'added' : 'changed',
+            origin: 'manuell',
+            reviewStatus: 'ungeprüft',
+            active: true,
+            source,
+            evidenceDocumentId: undefined,
+            treatmentEventId: input.treatmentEventId,
+            serviceDate: input.serviceDate,
+            serviceEndDate: input.serviceEndDate,
+            laterality: input.laterality,
+            quantity: input.quantity,
+            department: input.department,
+            assessedIteration: currentRun.iteration,
+          }
+        })
+    const activeMainDiagnosis = updatedEntries.find((entry) => entry.active && entry.type === 'HD')
+    const activeProcedures = updatedEntries.filter((entry) => entry.active && entry.type === 'OPS')
+    const actionLabel = input.action === 'added' ? 'ergänzt' : input.action === 'changed' ? 'geändert' : 'gelöscht'
     const updatedCase: CodingCase = {
       ...codingCase,
-      currentMainDiagnosis: `${nextEntry.code} · ${nextEntry.description}`,
+      currentMainDiagnosis: activeMainDiagnosis ? `${activeMainDiagnosis.code} · ${activeMainDiagnosis.description}` : 'Keine aktive Hauptdiagnose',
+      currentProcedures: activeProcedures.length ? activeProcedures.map((entry) => `${entry.code} · ${entry.description}`) : ['Keine aktive OPS-Kodierung'],
       codingEntries: updatedEntries,
     }
     mutateCase(updatedCase)
-    const newRun = await grouperClient.group(updatedCase, `Hauptdiagnose direkt eingegeben: ${nextEntry.code}`)
+    const newRun = await grouperClient.group(updatedCase, `Direkte Kodierung ${actionLabel}: ${input.type} ${input.code}`)
     mutateCase({
       ...updatedCase,
       codingEntries: updatedCase.codingEntries.map((entry) => entry.id === entryId ? { ...entry, assessedIteration: newRun.iteration } : entry),
+      decisions: updatedCase.decisions.map((item) => ({ ...item, assessedIteration: newRun.iteration })),
       grouperRuns: [...updatedCase.grouperRuns, newRun],
     })
     setRunningDecision(undefined)
-    setMainDiagnosisEditorOpen(false)
+    setDirectCodingDecisionId(undefined)
   }
 
   return (
@@ -567,7 +594,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
                     <button className="decision-summary" type="button" aria-expanded={selected} onClick={() => setActiveDecision(selected ? undefined : decision.id)}>
                       <span className={`impact-marker impact-${decision.impact}`}><span className="sr-only">Auswirkung {decision.impact}</span></span>
                       <span className="decision-copy">
-                        <span className="decision-meta"><span className={`status-pill status-${decision.status}`}>{statusLabels[decision.status]}</span>{decision.required && <span>Pflichtprüfung</span>}<span>Gruppierung {decision.groupingRelevance}</span><span>Auswirkung {decision.impact}</span></span>
+                        <span className="decision-meta"><span className={`status-pill status-${decision.status}`}>{statusLabels[decision.status]}</span>{decision.required && <span>Pflichtprüfung</span>}<span>Gruppierung {decision.groupingRelevance}</span><span>Auswirkung {decision.impact}</span><span>Bewertet Iteration {decision.assessedIteration ?? 1}</span></span>
                         <strong>{decision.title}</strong>
                         <small>{decision.effect}</small>
                       </span>
@@ -593,7 +620,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
                                 </select>
                               </label>
                               <div className="routing-actions">
-                                {decision.id === 'decision-main' && <button className="button primary" type="button" onClick={() => setMainDiagnosisEditorOpen(true)}><FileCode2 aria-hidden="true" /> Hauptdiagnose eingeben</button>}
+                                <button className="button secondary routing-code-button" type="button" onClick={() => setDirectCodingDecisionId(decision.id)}><FileCode2 aria-hidden="true" /> ICD / OPS eingeben</button>
                                 <button className={`button ${route.kind === 'wiki' ? 'primary' : 'secondary'}`} type="button" onClick={() => setCollaboration({ mode: 'wiki', decisionId: decision.id })}><MessageCircle aria-hidden="true" /> Wiki fragen</button>
                                 <button className={`button ${route.kind === 'consult' ? 'primary' : 'secondary'}`} type="button" onClick={() => setCollaboration({ mode: 'consult', decisionId: decision.id })}><Stethoscope aria-hidden="true" /> Kodierkonsil</button>
                               </div>
@@ -608,6 +635,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
                             </div>
                           </>
                         )}
+                        {resolved && <div className="button-row"><button className="button secondary" type="button" onClick={() => setDirectCodingDecisionId(decision.id)}><FileCode2 aria-hidden="true" /> ICD / OPS eingeben</button></div>}
                       </div>
                     )}
                   </article>
@@ -691,7 +719,10 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
         const document = codingCase.documentMap.find((item) => item.id === codingEditorDocumentId)
         return document ? <CodingEntryDrawer document={document} codingCase={codingCase} entries={codingCase.codingEntries} running={runningDecision === 'coding-entry'} onClose={() => setCodingEditorDocumentId(undefined)} onSave={saveCodingEntry} /> : null
       })()}
-      {mainDiagnosisEditorOpen && <MainDiagnosisDrawer currentEntry={activeMainDiagnosis} nextIteration={currentRun.iteration + 1} running={runningDecision === 'main-diagnosis'} onClose={() => setMainDiagnosisEditorOpen(false)} onSave={saveDirectMainDiagnosis} />}
+      {directCodingDecisionId && (() => {
+        const decision = codingCase.decisions.find((item) => item.id === directCodingDecisionId)
+        return decision ? <DirectCodingDrawer codingCase={codingCase} decision={decision} running={runningDecision === 'direct-coding'} onClose={() => setDirectCodingDecisionId(undefined)} onSave={saveDirectCoding} /> : null
+      })()}
       {codingTransferOpen && <CodingTransferDrawer codingCase={codingCase} onClose={() => setCodingTransferOpen(false)} />}
       {collaboration && (() => {
         const decision = codingCase.decisions.find((item) => item.id === collaboration.decisionId)

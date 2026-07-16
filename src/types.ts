@@ -152,6 +152,7 @@ export interface CaseDecision {
   effect: string
   groupingRelevance: 'keine' | 'möglich' | 'relevant'
   knowledge: 'vertraut' | 'unsicher' | 'fremd'
+  assessedIteration?: number
   resolution?: string
 }
 

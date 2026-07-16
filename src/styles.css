@@ -368,6 +368,7 @@ input:hover, select:hover, textarea:hover { border-color: #9daea5; }
 .routing-box label { color: var(--text-muted); font-size: .64rem; }
 .routing-box select { min-height: 36px; padding-block: 7px; background: var(--surface); }
 .routing-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; padding-top: 11px; border-top: 1px solid var(--border); }
+.routing-actions .routing-code-button { flex-basis: 100%; justify-content: flex-start; }
 .spin { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; } }
@@ -814,6 +815,9 @@ button.event-chip:hover { border-color: var(--border-strong); background: var(--
 .manual-code-warning > span { min-width: 0; display: grid; gap: 4px; }
 .manual-code-warning strong { font-size: .72rem; font-weight: 500; }
 .manual-code-warning small { color: var(--text-muted); font-size: .64rem; line-height: 1.45; }
+.direct-coding-parameters { border-top: 1px solid var(--border); }
+.direct-coding-parameters summary { padding: 11px 0 0; color: var(--primary); cursor: pointer; font-size: .68rem; font-weight: 500; }
+.direct-coding-parameters[open] summary { margin-bottom: 12px; }
 .coding-transfer-entry { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 13px; align-items: center; margin-bottom: 22px; padding: 15px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); cursor: pointer; text-align: left; }
 .coding-transfer-entry:hover { border-color: var(--border-strong); background: var(--surface-soft); }
 .coding-transfer-entry > span:first-child { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 10px; background: var(--primary-soft); color: var(--primary); }
