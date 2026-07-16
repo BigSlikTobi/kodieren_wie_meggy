@@ -74,6 +74,53 @@ describe('Kodierpfad prototype', () => {
     expect(screen.getByRole('button', { name: 'Bronchoskopie- und Biopsiebericht, Validiert · stimmig, Tag 3' })).toBeInTheDocument()
   })
 
+  it('erfasst ICD und OPS am Dokument, gruppiert neu und zeigt die KIS-Änderungsliste', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openManualCockpit(user)
+    await user.click(screen.getByRole('button', { name: /Dokumentenlandkarte/i }))
+
+    const openCodingEditor = async () => {
+      await user.click(screen.getByRole('button', { name: /Bronchoskopie- und Biopsiebericht,/i }))
+      await user.click(within(screen.getByRole('dialog', { name: 'Dokument einordnen' })).getByRole('button', { name: /ICD \/ OPS aus Dokument erfassen/i }))
+      return screen.getByRole('dialog', { name: 'ICD / OPS erfassen' })
+    }
+
+    let editor = await openCodingEditor()
+    await user.selectOptions(within(editor).getByLabelText('Kodetyp'), 'ND')
+    await user.type(within(editor).getByLabelText('ICD- oder OPS-Kode'), 'J15.9')
+    await user.type(within(editor).getByLabelText('Beschreibung'), 'Bakterielle Pneumonie · Demo')
+    await user.click(within(editor).getByRole('button', { name: /Ergänzen und neu bewerten/i }))
+    await waitFor(() => expect(screen.getAllByText(/Iteration 2/i).length).toBeGreaterThan(0))
+
+    editor = await openCodingEditor()
+    await user.click(within(editor).getByRole('radio', { name: 'Ändern' }))
+    await user.clear(within(editor).getByLabelText('ICD- oder OPS-Kode'))
+    await user.type(within(editor).getByLabelText('ICD- oder OPS-Kode'), 'C34.1')
+    await user.click(within(editor).getByRole('button', { name: /Ändern und neu bewerten/i }))
+    await waitFor(() => expect(screen.getAllByText(/Iteration 3/i).length).toBeGreaterThan(0))
+
+    editor = await openCodingEditor()
+    await user.click(within(editor).getByRole('radio', { name: 'Löschen' }))
+    await user.selectOptions(within(editor).getByLabelText('Bestehenden Kode auswählen'), 'coding-nd-j189')
+    await user.click(within(editor).getByRole('button', { name: /Löschen und neu bewerten/i }))
+    await waitFor(() => expect(screen.getAllByText(/Iteration 4/i).length).toBeGreaterThan(0))
+
+    const mapDialog = screen.getByRole('dialog', { name: 'Dokumentenlandkarte' })
+    await user.click(within(mapDialog).getByRole('button', { name: 'Schließen' }))
+    await user.click(screen.getByRole('button', { name: /DRG & Entgelte/i }))
+    await user.click(screen.getByRole('button', { name: /Für KIS öffnen/i }))
+
+    const transfer = screen.getByRole('dialog', { name: 'Vollständige Kodierung' })
+    expect(within(transfer).getByText('J15.9')).toBeInTheDocument()
+    expect(within(transfer).getByText('C34.1')).toBeInTheDocument()
+    expect(within(transfer).getByText('Ergänzt')).toBeInTheDocument()
+    expect(within(transfer).getByText('Geändert')).toBeInTheDocument()
+    expect(within(transfer).getByText('Gelöscht')).toBeInTheDocument()
+    expect(within(transfer).getByText(/Vorher: C34.9/i)).toBeInTheDocument()
+    expect(within(transfer).getByText(/Quelle: Bronchoskopie- und Biopsiebericht · Iteration 4/i)).toBeInTheDocument()
+  })
+
   it('strukturiert, testet und genehmigt eine neue Regel', async () => {
     const user = userEvent.setup()
     render(<App />)

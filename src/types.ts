@@ -164,6 +164,23 @@ export interface GrouperRun {
   extras: string[]
 }
 
+export type CodingEntryType = 'HD' | 'ND' | 'OPS'
+export type CodingChange = 'unchanged' | 'added' | 'changed' | 'deleted'
+
+export interface CodingEntry {
+  id: string
+  type: CodingEntryType
+  code: string
+  description: string
+  originalCode?: string
+  originalDescription?: string
+  change: CodingChange
+  active: boolean
+  source: string
+  evidenceDocumentId?: string
+  assessedIteration: number
+}
+
 export type TechnicalValueStatus = 'importiert' | 'bestätigt' | 'korrigiert' | 'unklar' | 'widersprüchlich'
 
 export interface TechnicalInterval {
@@ -268,6 +285,7 @@ export interface CodingCase {
   documentMap: DocumentMapItem[]
   decisions: CaseDecision[]
   grouperRuns: GrouperRun[]
+  codingEntries: CodingEntry[]
   technicalValues: TechnicalCaseValue[]
   medicalJustification: MedicalJustification
   createdAt: string

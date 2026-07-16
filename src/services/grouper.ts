@@ -11,6 +11,11 @@ export class MockGrouperClient implements GrouperClient {
     const hasMainDiagnosis = resolved.some((decision) => decision.id.includes('main'))
     const hasTherapy = resolved.some((decision) => decision.id.includes('therapy'))
     const hasPneumonia = resolved.some((decision) => decision.id.includes('pneumonia'))
+    const hasSpecificPneumoniaCode = codingCase.codingEntries.some((entry) => {
+      if (!entry.active || (entry.type !== 'HD' && entry.type !== 'ND')) return false
+      const code = entry.code.toUpperCase()
+      return code.startsWith('J12') || code.startsWith('J13') || code.startsWith('J14') || code.startsWith('J15') || code.startsWith('J16') || code.startsWith('J17') || code === 'B44.0'
+    })
     const iteration = codingCase.grouperRuns.length + 1
 
     let drg = codingCase.scenario === 'standard' ? 'E77B · Demo' : 'E71B · Demo'
@@ -27,9 +32,11 @@ export class MockGrouperClient implements GrouperClient {
       extras.push('ZE-Demo: systemische Tumortherapie geprüft')
       reason = 'Therapienachweis ergänzt; Zusatzentgelt-Prüfung aktualisiert.'
     }
-    if (hasPneumonia) {
+    if (hasPneumonia || hasSpecificPneumoniaCode) {
       drg = 'E79A · Demoalternative'
-      reason = 'Spezifische Pneumonie-Hypothese wurde im Demopfad bestätigt.'
+      reason = hasSpecificPneumoniaCode
+        ? 'Spezifischer Pneumonie-Kode ergänzt; alternative DRG im Demopfad neu bewertet.'
+        : 'Spezifische Pneumonie-Hypothese wurde im Demopfad bestätigt.'
       changed = true
     }
     if (trigger?.includes('ausgeschlossen')) {
@@ -38,6 +45,11 @@ export class MockGrouperClient implements GrouperClient {
     if (trigger?.includes('bestätigt') || trigger?.includes('korrigiert')) {
       reason = `${trigger}; technische Grouper-Eingabe aktualisiert.`
     }
+    if (trigger?.startsWith('Kodierung') && !hasSpecificPneumoniaCode) {
+      reason = `${trigger}; vollständige Kodierung neu gruppiert. Der DRG-Pfad bleibt in der Demo stabil.`
+    }
+
+    changed = codingCase.grouperRuns.at(-1)?.drg !== drg
 
     return {
       id: `run-${codingCase.id}-${iteration}`,

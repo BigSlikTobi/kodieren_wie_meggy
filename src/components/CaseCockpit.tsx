@@ -7,6 +7,7 @@ import {
   ChevronDown,
   CircleDot,
   FileUp,
+  FileCode2,
   Gauge,
   History,
   Info,
@@ -25,6 +26,8 @@ import {
 import type { GrouperClient } from '../services/grouper'
 import type { AppData, CaseDecision, CodingCase, CodingConsultation, EvidenceStatus, HospitalProfile, TechnicalCaseValue } from '../types'
 import { CollaborationDrawer } from './CollaborationDrawer'
+import { CodingEntryDrawer, type CodingEntryInput } from './CodingEntryDrawer'
+import { CodingTransferDrawer } from './CodingTransferDrawer'
 import { DocumentLandscape } from './DocumentLandscape'
 import { MedicalJustificationDrawer } from './MedicalJustificationDrawer'
 import { TreatmentRibbon } from './TreatmentRibbon'
@@ -55,6 +58,8 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
   const [activeStep, setActiveStep] = useState(1)
   const [documentMapOpen, setDocumentMapOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [codingEditorDocumentId, setCodingEditorDocumentId] = useState<string>()
+  const [codingTransferOpen, setCodingTransferOpen] = useState(false)
 
   const hospital = hospitals.find((item) => item.id === codingCase.hospitalId)
   const profile = hospital?.profiles.find((item) => item.siteId === codingCase.siteId && item.year === codingCase.year)
@@ -65,6 +70,8 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
   const evidenceCount = codingCase.decisions.filter((decision) => decision.status === 'belegt').length
   const unresolvedTechnical = codingCase.technicalValues.filter((value) => !['bestätigt', 'korrigiert'].includes(value.status))
   const blockingTechnical = unresolvedTechnical.filter((value) => value.groupingRelevant)
+  const codingChanges = codingCase.codingEntries.filter((entry) => entry.change !== 'unchanged')
+  const activeCodingEntries = codingCase.codingEntries.filter((entry) => entry.active)
   const stepStates = [true, Boolean(currentRun), openAlternatives.length === 0, unresolvedTechnical.length === 0, codingCase.status === 'abgeschlossen']
   const recommendedStep = firstOpenDecision ? 3 : unresolvedTechnical.length > 0 ? 4 : 5
   const nextAction = firstOpenDecision?.title ?? unresolvedTechnical[0]?.label ?? (codingCase.status === 'abgeschlossen' ? 'Fall abgeschlossen' : 'Fallabschluss prüfen')
@@ -266,6 +273,83 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
     setRunningDecision(undefined)
   }
 
+  const saveCodingEntry = async (input: CodingEntryInput) => {
+    const sourceDocument = codingCase.documentMap.find((item) => item.id === input.evidenceDocumentId)
+    const target = input.targetEntryId ? codingCase.codingEntries.find((entry) => entry.id === input.targetEntryId) : undefined
+    if (!sourceDocument || (input.action !== 'added' && !target)) return
+    setRunningDecision('coding-entry')
+
+    const changedEntries = input.action === 'added'
+      ? [
+          ...codingCase.codingEntries,
+          {
+            id: `coding-${Date.now()}`,
+            type: input.type,
+            code: input.code,
+            description: input.description || 'Manuell aus Dokument erfasst',
+            change: 'added' as const,
+            active: true,
+            source: `Manuelle Erfassung aus ${sourceDocument.title}`,
+            evidenceDocumentId: sourceDocument.id,
+            assessedIteration: codingCase.grouperRuns.length + 1,
+          },
+        ]
+      : codingCase.codingEntries.map((entry) => {
+          if (entry.id !== target!.id) return entry
+          if (input.action === 'deleted') {
+            return {
+              ...entry,
+              code: entry.originalCode ?? entry.code,
+              description: entry.originalDescription ?? entry.description,
+              originalCode: entry.originalCode ?? entry.code,
+              originalDescription: entry.originalDescription ?? entry.description,
+              change: 'deleted' as const,
+              active: false,
+              source: `Manuelle Erfassung aus ${sourceDocument.title}`,
+              evidenceDocumentId: sourceDocument.id,
+              assessedIteration: codingCase.grouperRuns.length + 1,
+            }
+          }
+          return {
+            ...entry,
+            code: input.code,
+            description: input.description || entry.description,
+            originalCode: entry.originalCode ?? entry.code,
+            originalDescription: entry.originalDescription ?? entry.description,
+            change: entry.change === 'added' ? 'added' as const : 'changed' as const,
+            active: true,
+            source: `Manuelle Erfassung aus ${sourceDocument.title}`,
+            evidenceDocumentId: sourceDocument.id,
+            assessedIteration: codingCase.grouperRuns.length + 1,
+          }
+        })
+
+    const activeMainDiagnosis = changedEntries.find((entry) => entry.active && entry.type === 'HD')
+    const activeProcedures = changedEntries.filter((entry) => entry.active && entry.type === 'OPS')
+    const actionLabel = input.action === 'added' ? 'ergänzt' : input.action === 'changed' ? 'geändert' : 'gelöscht'
+    const updatedCase: CodingCase = {
+      ...codingCase,
+      currentMainDiagnosis: activeMainDiagnosis ? `${activeMainDiagnosis.code} · ${activeMainDiagnosis.description}` : 'Keine aktive Hauptdiagnose',
+      currentProcedures: activeProcedures.length ? activeProcedures.map((entry) => `${entry.code} · ${entry.description}`) : ['Keine aktive OPS-Kodierung'],
+      codingEntries: changedEntries,
+      documentMap: codingCase.documentMap.map((item) => item.id === sourceDocument.id ? {
+        ...item,
+        codingNote: `${input.type} ${input.code} wurde ${actionLabel}. Automatische Neubewertung läuft.`,
+        outcomeDimensions: { ...item.outcomeDimensions, kodierung: 'geprüft' },
+      } : item),
+    }
+    mutateCase(updatedCase)
+    const newRun = await grouperClient.group(updatedCase, `Kodierung ${actionLabel}: ${input.type} ${input.code}`)
+    mutateCase({
+      ...updatedCase,
+      codingEntries: updatedCase.codingEntries.map((entry) => entry.id === target?.id || (input.action === 'added' && entry.id === changedEntries.at(-1)?.id) ? { ...entry, assessedIteration: newRun.iteration } : entry),
+      documentMap: updatedCase.documentMap.map((item) => item.id === sourceDocument.id ? { ...item, assessedIteration: newRun.iteration } : item),
+      grouperRuns: [...updatedCase.grouperRuns, newRun],
+    })
+    setRunningDecision(undefined)
+    setCodingEditorDocumentId(undefined)
+  }
+
   return (
     <div className="page cockpit-page">
       <div className="case-title-row">
@@ -292,7 +376,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
       <TreatmentRibbon codingCase={codingCase} compact />
 
       <nav className="coding-step-nav" aria-label="Kodierschritte">
-        {['Fall einordnen', 'Basis-DRG', 'Prüfungen', 'Entgelte', 'Abschluss'].map((label, index) => {
+        {['Fall einordnen', 'Basis-DRG', 'Prüfungen', 'DRG & Entgelte', 'Abschluss'].map((label, index) => {
           const step = index + 1
           return <button key={label} type="button" className={activeStep === step ? 'active' : ''} aria-current={activeStep === step ? 'step' : undefined} onClick={() => setActiveStep(step)}><span>{stepStates[index] ? <Check aria-hidden="true" /> : step}</span><strong>{label}</strong>{step === recommendedStep && activeStep !== step && <small>Empfohlen</small>}</button>
         })}
@@ -303,7 +387,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
         <button type="button" onClick={() => setHistoryOpen(true)}><History aria-hidden="true" /><span><strong>Iterationen</strong><small>{codingCase.grouperRuns.length} Grouper-Läufe · Historie bleibt erhalten</small></span><ArrowRight aria-hidden="true" /></button>
       </div>
 
-      {documentMapOpen && <div className="fullscreen-backdrop" role="presentation" onMouseDown={() => setDocumentMapOpen(false)}><section className="fullscreen-detail" role="dialog" aria-modal="true" aria-label="Dokumentenlandkarte" onMouseDown={(event) => event.stopPropagation()}><div className="fullscreen-header"><div><div className="page-kicker">Second Screen · {codingCase.caseNumber}</div><h2>Dokumentenlandkarte</h2></div><button className="icon-button" type="button" aria-label="Schließen" onClick={() => setDocumentMapOpen(false)}><X aria-hidden="true" /></button></div><DocumentLandscape codingCase={codingCase} onOpenDecision={(decisionId) => { setActiveDecision(decisionId); setActiveStep(3); setDocumentMapOpen(false) }} onOpenCollaboration={(mode, decisionId) => setCollaboration({ mode, decisionId })} onConfirmReview={(documentId) => void confirmDocumentReview(documentId)} kisGuides={profile?.kisGuides ?? []} /></section></div>}
+      {documentMapOpen && <div className="fullscreen-backdrop" role="presentation" onMouseDown={() => setDocumentMapOpen(false)}><section className="fullscreen-detail" role="dialog" aria-modal="true" aria-label="Dokumentenlandkarte" onMouseDown={(event) => event.stopPropagation()}><div className="fullscreen-header"><div><div className="page-kicker">Second Screen · {codingCase.caseNumber}</div><h2>Dokumentenlandkarte</h2></div><button className="icon-button" type="button" aria-label="Schließen" onClick={() => setDocumentMapOpen(false)}><X aria-hidden="true" /></button></div><DocumentLandscape codingCase={codingCase} onOpenDecision={(decisionId) => { setActiveDecision(decisionId); setActiveStep(3); setDocumentMapOpen(false) }} onOpenCollaboration={(mode, decisionId) => setCollaboration({ mode, decisionId })} onConfirmReview={(documentId) => void confirmDocumentReview(documentId)} onOpenCodingEntry={setCodingEditorDocumentId} kisGuides={profile?.kisGuides ?? []} /></section></div>}
 
       <section className="validation-stage guided-step" aria-labelledby="validation-title" hidden={activeStep !== 1}>
         <div className="section-title-row">
@@ -443,7 +527,12 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
           </section>
 
           <section className="entitlement-section guided-step" aria-labelledby="entitlement-title" hidden={activeStep !== 4}>
-            <div className="section-title-row"><div><div className="page-kicker">Paralleler Prüfpfad</div><h2 id="entitlement-title">Entgelte und Komplexbehandlungen</h2></div></div>
+            <div className="section-title-row"><div><div className="page-kicker">Gruppierung und KIS-Übergabe</div><h2 id="entitlement-title">DRG und Entgelte</h2></div></div>
+            <button className="coding-transfer-entry" type="button" onClick={() => setCodingTransferOpen(true)}>
+              <span><FileCode2 aria-hidden="true" /></span>
+              <span><small>Vollständige Kodierung</small><strong>{activeCodingEntries.length} aktiv · {codingChanges.filter((entry) => entry.change === 'added').length} ergänzt · {codingChanges.filter((entry) => entry.change === 'changed').length} geändert · {codingChanges.filter((entry) => entry.change === 'deleted').length} gelöscht</strong><span>Mit Quelle, Iteration und Änderung gegenüber der Vorkodierung</span></span>
+              <span>Für KIS öffnen <ArrowRight aria-hidden="true" /></span>
+            </button>
             <div className="check-grid">
               <CheckRow label="DRG" detail={`${currentRun.drg}, Basis ${currentRun.baseDrg}`} status="geprüft" />
               <CheckRow label="Zusatzentgelte" detail={currentRun.extras[0] ?? 'Therapienachweis noch offen'} status={currentRun.extras.length ? 'geprüft' : 'offen'} />
@@ -486,6 +575,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
             <div><span>OPS</span><strong>{codingCase.currentProcedures.join(' · ')}</strong></div>
             <div><span>Entgelte</span><strong>{currentRun.extras.join(', ') || 'Keine zusätzlichen Demovorschläge'}</strong></div>
           </div>
+          <button className="button secondary" type="button" onClick={() => setCodingTransferOpen(true)}><FileCode2 aria-hidden="true" /> Vollständige Kodierung für KIS öffnen</button>
           {openAlternatives.length > 0 && <div className="inline-note"><Info aria-hidden="true" /><span>Dokumentierte Restunsicherheiten: {openAlternatives.map((item) => item.title).join('; ')}.</span></div>}
           <details className="final-mbeg">
             <summary><span><ShieldCheck aria-hidden="true" /><span><strong>Medizinische Begründung vollstationär</strong><small>{codingCase.medicalJustification.reviewed ? 'Fachlich geprüft und optional weiterleitbar' : 'Optional anzeigen und fachlich prüfen'}</small></span></span><ChevronDown aria-hidden="true" /></summary>
@@ -506,6 +596,11 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
           </aside>
         </div>
       )}
+      {codingEditorDocumentId && (() => {
+        const document = codingCase.documentMap.find((item) => item.id === codingEditorDocumentId)
+        return document ? <CodingEntryDrawer document={document} entries={codingCase.codingEntries} running={runningDecision === 'coding-entry'} onClose={() => setCodingEditorDocumentId(undefined)} onSave={saveCodingEntry} /> : null
+      })()}
+      {codingTransferOpen && <CodingTransferDrawer codingCase={codingCase} onClose={() => setCodingTransferOpen(false)} />}
       {collaboration && (() => {
         const decision = codingCase.decisions.find((item) => item.id === collaboration.decisionId)
         return decision ? (

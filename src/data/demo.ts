@@ -1,4 +1,4 @@
-import type { AppData, BatchCaseRecord, CodingCase, DocumentOutcomeDimensions, HospitalProfile, KisGuide, NewCaseInput, OutcomeDimensionStatus, RuleDefinition, TechnicalCaseValue } from '../types'
+import type { AppData, BatchCaseRecord, CodingCase, CodingEntry, DocumentOutcomeDimensions, HospitalProfile, KisGuide, NewCaseInput, OutcomeDimensionStatus, RuleDefinition, TechnicalCaseValue } from '../types'
 
 const isoNow = () => new Date().toISOString()
 
@@ -498,6 +498,67 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
         },
       ]
 
+  const codingEntries: CodingEntry[] = isComplex
+    ? [
+        {
+          id: 'coding-hd-c349',
+          type: 'HD',
+          code: 'C34.9',
+          description: 'Bronchialkarzinom, nicht näher bezeichnet · illustrative Demoangabe',
+          change: 'unchanged',
+          active: true,
+          source: 'Vorkodierung · strukturierter Export',
+          evidenceDocumentId: 'map-precode',
+          assessedIteration: 1,
+        },
+        {
+          id: 'coding-nd-j189',
+          type: 'ND',
+          code: 'J18.9',
+          description: 'Pneumonie, nicht näher bezeichnet · illustrative Demoangabe',
+          change: 'unchanged',
+          active: true,
+          source: 'Vorkodierung · strukturierter Export',
+          evidenceDocumentId: 'map-pulmo-report',
+          assessedIteration: 1,
+        },
+        {
+          id: 'coding-ops-16200',
+          type: 'OPS',
+          code: '1-620.0',
+          description: 'Bronchoskopische Diagnostik · illustrative Demoangabe',
+          change: 'unchanged',
+          active: true,
+          source: 'Vorkodierung · strukturierter Export',
+          evidenceDocumentId: 'map-bronchoscopy',
+          assessedIteration: 1,
+        },
+        {
+          id: 'coding-ops-854211',
+          type: 'OPS',
+          code: '8-542.11',
+          description: 'Systemische Tumortherapie · illustrative Demoangabe',
+          change: 'unchanged',
+          active: true,
+          source: 'Vorkodierung · strukturierter Export',
+          evidenceDocumentId: 'map-oncology-report',
+          assessedIteration: 1,
+        },
+      ]
+    : [
+        {
+          id: 'coding-hd-j189',
+          type: 'HD',
+          code: 'J18.9',
+          description: 'Pneumonie, nicht näher bezeichnet · illustrative Demoangabe',
+          change: 'unchanged',
+          active: true,
+          source: 'Vorkodierung · strukturierter Export',
+          evidenceDocumentId: 'map-precode',
+          assessedIteration: 1,
+        },
+      ]
+
   return {
     id,
     caseNumber: input.caseNumber ?? `MAN-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`,
@@ -664,6 +725,7 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
         extras: [],
       },
     ],
+    codingEntries,
     technicalValues: input.technicalValues ?? [],
     medicalJustification: isComplex
       ? {

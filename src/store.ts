@@ -1,11 +1,38 @@
 import { useEffect, useState } from 'react'
 import { initialData } from './data/demo'
-import type { AppData } from './types'
+import type { AppData, CodingCase, CodingEntry } from './types'
 
 const STORAGE_KEY = 'kodierpfad-demo-v4'
 
 function cloneInitialData(): AppData {
   return JSON.parse(JSON.stringify(initialData)) as AppData
+}
+
+function createLegacyCodingEntries(codingCase: CodingCase): CodingEntry[] {
+  const mainCode = codingCase.currentMainDiagnosis.split('·')[0]?.trim() || codingCase.currentMainDiagnosis
+  const procedures = codingCase.currentProcedures.filter((procedure) => !procedure.toLowerCase().startsWith('keine'))
+  return [
+    {
+      id: `coding-${codingCase.id}-hd`,
+      type: 'HD',
+      code: mainCode,
+      description: codingCase.currentMainDiagnosis.split('·').slice(1).join('·').trim() || 'Aus bestehendem Fallstand übernommen',
+      change: 'unchanged',
+      active: true,
+      source: 'Migrierte Vorkodierung',
+      assessedIteration: 1,
+    },
+    ...procedures.map((procedure, index) => ({
+      id: `coding-${codingCase.id}-ops-${index}`,
+      type: 'OPS' as const,
+      code: procedure.split('·')[0]?.trim() || procedure,
+      description: procedure.split('·').slice(1).join('·').trim() || 'Aus bestehendem Fallstand übernommen',
+      change: 'unchanged' as const,
+      active: true,
+      source: 'Migrierte Vorkodierung',
+      assessedIteration: 1,
+    })),
+  ]
 }
 
 function normalizeData(value: AppData): AppData {
@@ -27,6 +54,7 @@ function normalizeData(value: AppData): AppData {
       caseNumber: codingCase.caseNumber ?? `ALT-${codingCase.id.slice(-6)}`,
       intakeConfirmed: codingCase.intakeConfirmed ?? false,
       intakeSources: codingCase.intakeSources ?? [{ id: `source-${codingCase.id}`, kind: 'manuell', label: 'Bestehender Demofall', status: 'bestätigt', detail: 'Aus lokal gespeichertem Fallstand übernommen.', addedAt: codingCase.createdAt }],
+      codingEntries: codingCase.codingEntries ?? createLegacyCodingEntries(codingCase),
       technicalValues: codingCase.technicalValues ?? [],
       documentMap: (codingCase.documentMap ?? []).map((document) => ({
         ...document,

@@ -4,6 +4,7 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
+  FileCode2,
   FileCheck2,
   FileQuestion,
   FileText,
@@ -23,6 +24,7 @@ interface DocumentLandscapeProps {
   onOpenDecision: (decisionId: string) => void
   onOpenCollaboration: (mode: 'consult' | 'wiki', decisionId: string) => void
   onConfirmReview: (documentId: string) => void
+  onOpenCodingEntry: (documentId: string) => void
   kisGuides: KisGuide[]
 }
 
@@ -33,7 +35,7 @@ const kindLabels: Record<DocumentMapItem['kind'], string> = {
   vorkodierung: 'Vorkodierung',
 }
 
-export function DocumentLandscape({ codingCase, onOpenDecision, onOpenCollaboration, onConfirmReview, kisGuides }: DocumentLandscapeProps) {
+export function DocumentLandscape({ codingCase, onOpenDecision, onOpenCollaboration, onConfirmReview, onOpenCodingEntry, kisGuides }: DocumentLandscapeProps) {
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>()
   const documents = codingCase.documentMap ?? []
   const selectedDocument = documents.find((item) => item.id === selectedDocumentId)
@@ -125,6 +127,10 @@ export function DocumentLandscape({ codingCase, onOpenDecision, onOpenCollaborat
             setSelectedDocumentId(undefined)
             onConfirmReview(documentId)
           }}
+          onOpenCodingEntry={(documentId) => {
+            setSelectedDocumentId(undefined)
+            onOpenCodingEntry(documentId)
+          }}
         />
       )}
     </section>
@@ -195,6 +201,7 @@ function DocumentDetail({
   onOpenDecision,
   onOpenCollaboration,
   onConfirmReview,
+  onOpenCodingEntry,
 }: {
   document: DocumentMapItem
   kisGuide?: KisGuide
@@ -202,6 +209,7 @@ function DocumentDetail({
   onOpenDecision: (decisionId: string) => void
   onOpenCollaboration: (mode: 'consult' | 'wiki', decisionId: string) => void
   onConfirmReview: (documentId: string) => void
+  onOpenCodingEntry: (documentId: string) => void
 }) {
   const status = getDocumentStatus(document)
   return (
@@ -248,6 +256,13 @@ function DocumentDetail({
         </details>
         {document.relevance === 'neutral' && (
           <div className="coding-duty-note"><FileCheck2 aria-hidden="true" /><span><strong>DRG-neutral heißt nicht unkodiert</strong><small>Die Leistung bleibt regelkonform abzubilden. Aktuell ist nur keine tiefere Dokumentenprüfung nötig.</small></span></div>
+        )}
+        {document.availability === 'vorhanden' && (
+          <button className="coding-from-document" type="button" onClick={() => onOpenCodingEntry(document.id)}>
+            <span><FileCode2 aria-hidden="true" /></span>
+            <span><strong>ICD / OPS aus Dokument erfassen</strong><small>Ergänzen, ändern oder löschen. Danach startet eine neue Grouper-Iteration.</small></span>
+            <ChevronDown aria-hidden="true" />
+          </button>
         )}
         {document.linkedDecisionId && (
           <div className="document-detail-actions">
