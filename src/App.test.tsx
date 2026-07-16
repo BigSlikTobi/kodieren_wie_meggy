@@ -37,7 +37,8 @@ describe('Kodierpfad prototype', () => {
     await user.click(screen.getByRole('button', { name: /Fall analysieren/i }))
     expect(screen.getByRole('heading', { name: /Stimmt der Behandlungsverlauf/i })).toBeInTheDocument()
     expect(screen.getByLabelText('Dokumenttypen im Behandlungsverlauf')).toHaveTextContent('Verlauf')
-    expect(screen.getByLabelText('Fachabteilungen im Fall')).toHaveTextContent('1Verlauf')
+    expect(screen.getByLabelText('Fachabteilungen im Fall')).toHaveTextContent('Pneumologie')
+    expect(screen.getByLabelText('Fachabteilungen im Fall')).toHaveTextContent('Onkologie')
     await user.click(screen.getByRole('button', { name: /Fallbasis bestätigen/i }))
     expect(screen.getByRole('heading', { name: /Pulmologisch-onkologischer Demofall/i })).toBeInTheDocument()
     expect(screen.getByText('Typisch für dieses Haus')).toBeInTheDocument()
@@ -63,9 +64,9 @@ describe('Kodierpfad prototype', () => {
     await user.click(within(courseDocumentDialog).getByRole('button', { name: 'Schließen' }))
     const mapDialogAfterCourse = screen.getByRole('dialog', { name: 'Dokumentenlandkarte' })
     await user.click(within(mapDialogAfterCourse).getByRole('button', { name: 'Schließen' }))
-    const eventList = screen.getByRole('list', { name: 'Chronologische Ereignisse' })
-    expect(within(eventList).getAllByRole('listitem')).toHaveLength(13)
-    await user.click(within(eventList).getByRole('listitem', { name: /Bronchoskopische Biopsie/i }))
+    expect(screen.getByLabelText('Medizinisch relevante Ereignisse nach Art')).toHaveTextContent('Invasive Diagnostik')
+    expect(screen.getByLabelText('Medizinisch relevante Ereignisse nach Art')).toHaveTextContent('Konservative und medikamentöse Therapie')
+    await user.click(screen.getByRole('button', { name: /Bronchoskopische Biopsie.*Falllandkarte öffnen/i }))
 
     const directDocumentDialog = screen.getByRole('dialog', { name: 'Bronchoskopie- und Biopsiebericht' })
     expect(within(directDocumentDialog).getByText(/1-620.0/)).toBeInTheDocument()
@@ -154,7 +155,7 @@ describe('Kodierpfad prototype', () => {
     await openManualCockpit(user)
     await user.click(screen.getByRole('button', { name: /Prüfungen/i }))
 
-    await user.click(screen.getByRole('button', { name: 'ICD / OPS eingeben' }))
+    await user.click(screen.getByRole('button', { name: /Manuell kodieren/i }))
     const editor = screen.getByRole('dialog', { name: 'ICD / OPS eingeben' })
     expect(within(editor).getByLabelText('Freier ICD- oder OPS-Kode')).toHaveValue('C34.9')
     expect(within(editor).getByText(/Prüfentscheidung bleibt offen/i)).toBeInTheDocument()
@@ -184,7 +185,7 @@ describe('Kodierpfad prototype', () => {
     await user.click(screen.getByRole('button', { name: /Prüfungen/i }))
     await user.click(screen.getByRole('button', { name: /Palliativmedizinische Komplexbehandlung ausschließen/i }))
 
-    await user.click(screen.getByRole('button', { name: 'ICD / OPS eingeben' }))
+    await user.click(screen.getByRole('button', { name: /Manuell kodieren/i }))
     const editor = screen.getByRole('dialog', { name: 'ICD / OPS eingeben' })
     expect(within(editor).getByLabelText('Kodetyp für freie Kodierung')).toHaveValue('OPS')
     await user.type(within(editor).getByLabelText('Freier ICD- oder OPS-Kode'), '8-98e.0')
@@ -200,6 +201,25 @@ describe('Kodierpfad prototype', () => {
     const transfer = screen.getByRole('dialog', { name: 'Vollständige Kodierung' })
     expect(within(transfer).getByText('8-98E.0')).toBeInTheDocument()
     expect(within(transfer).getByText(/Direkteingabe zur Prüfung „Palliativmedizinische Komplexbehandlung ausschließen“ · Iteration 2/i)).toBeInTheDocument()
+  })
+
+  it('zeigt Vorkodierung je Entscheidung und validiert sie als neue Iteration', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openManualCockpit(user)
+    await user.click(screen.getByRole('button', { name: /Prüfungen/i }))
+    await user.click(screen.getByRole('button', { name: /Systemische Tumortherapie prüfen/i }))
+
+    const therapyDecision = screen.getByRole('button', { name: /Systemische Tumortherapie prüfen/i }).closest('article')!
+    expect(within(therapyDecision).getByText('8-542.11')).toBeInTheDocument()
+    expect(within(therapyDecision).getByText(/Vorkodierung · vorläufig geprüft · Iteration 1/i)).toBeInTheDocument()
+    expect(within(therapyDecision).getByRole('button', { name: /Manuell kodieren/i })).toBeInTheDocument()
+    expect(within(therapyDecision).getByRole('button', { name: /Mit Kodierwiki erarbeiten/i })).toBeInTheDocument()
+    expect(within(therapyDecision).getByRole('button', { name: /Kodierkonsil anfordern/i })).toBeInTheDocument()
+
+    await user.click(within(therapyDecision).getByRole('button', { name: /Vorkodierung validieren/i }))
+    await waitFor(() => expect(screen.getAllByText(/Iteration 2/i).length).toBeGreaterThan(0))
+    expect(screen.getByText(/Vorkodierung validiert: OPS 8-542.11/i)).toBeInTheDocument()
   })
 
   it('strukturiert, testet und genehmigt eine neue Regel', async () => {
@@ -240,15 +260,18 @@ describe('Kodierpfad prototype', () => {
     await user.selectOptions(screen.getByLabelText(/Fachkenntnis für Hauptdiagnose/i), 'fremd')
     expect(screen.getByText('Menschliches Kodierkonsil')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /^Kodierkonsil$/i }))
-    expect(screen.getByRole('heading', { name: 'Kodierkonsil' })).toBeInTheDocument()
-    expect(screen.getByText(/Vollständiger Fallkontext wird geteilt/i)).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /Konsil anfordern/i }))
-    expect(screen.getByText(/Simulierte Expertenantwort/i)).toBeInTheDocument()
+    const mainDecisionCard = screen.getByRole('button', { name: /Hauptdiagnose über den Gesamtfall belegen/i }).closest('article')!
+    await user.click(within(mainDecisionCard).getByRole('button', { name: /Kodierkonsil anfordern/i }))
+    const consultationDialog = screen.getByRole('dialog', { name: 'Kodierkonsil' })
+    expect(within(consultationDialog).getByText(/Vollständiger Fallkontext wird geteilt/i)).toBeInTheDocument()
+    await user.click(within(consultationDialog).getByRole('button', { name: /Konsil anfordern/i }))
+    expect(within(consultationDialog).getByText(/Simulierte Expertenantwort/i)).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /Konsilergebnis übernehmen/i }))
-    await waitFor(() => expect(screen.getByText(/Konsil abgeschlossen: bestätigt/i)).toBeInTheDocument())
-    await user.click(screen.getByRole('button', { name: 'Schließen' }))
+    await user.click(within(consultationDialog).getByRole('button', { name: /Konsilergebnis übernehmen/i }))
+    await waitFor(() => expect(within(consultationDialog).getByText(/Konsil abgeschlossen: bestätigt/i)).toBeInTheDocument())
+    await user.click(within(consultationDialog).getByRole('button', { name: /Konsilergebnis in Kodierung übernehmen/i }))
+    expect(screen.getByRole('dialog', { name: 'ICD / OPS eingeben' })).toBeInTheDocument()
+    await user.click(within(screen.getByRole('dialog', { name: 'ICD / OPS eingeben' })).getByRole('button', { name: 'Schließen' }))
     await waitFor(() => expect(screen.getAllByText(/Iteration 2/i).length).toBeGreaterThan(0))
   })
 
@@ -260,12 +283,14 @@ describe('Kodierpfad prototype', () => {
 
     await user.click(screen.getByRole('button', { name: /Palliativmedizinische Komplexbehandlung ausschließen/i }))
     expect(screen.getByText('Wiki-Chat zur Einordnung')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /Wiki fragen/i }))
+    await user.click(screen.getByRole('button', { name: /Mit Kodierwiki erarbeiten/i }))
     await user.type(screen.getByLabelText(/Frage an den Wiki-Chat/i), 'Welche Mindestmerkmale sind hier grundsätzlich wichtig?')
     await user.click(screen.getByRole('button', { name: /Senden/i }))
 
     expect(screen.getByText(/ersetzt keinen Fallnachweis/i)).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Schließen' }))
+    await user.click(screen.getByRole('button', { name: /Wiki-Ergebnis in Kodierung übernehmen/i }))
+    expect(screen.getByRole('dialog', { name: 'ICD / OPS eingeben' })).toBeInTheDocument()
+    await user.click(within(screen.getByRole('dialog', { name: 'ICD / OPS eingeben' })).getByRole('button', { name: 'Schließen' }))
     expect(screen.getByRole('button', { name: /Palliativmedizinische Komplexbehandlung ausschließen/i })).toHaveTextContent('Wahrscheinlich')
   })
 

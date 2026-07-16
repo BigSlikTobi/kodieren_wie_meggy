@@ -12,14 +12,12 @@ import {
   History,
   Info,
   LockKeyhole,
-  Map,
+  Map as MapIcon,
   MessageCircle,
   Plus,
   RotateCw,
   ShieldCheck,
   Sparkles,
-  Stethoscope,
-  UserRoundCheck,
   Users,
   X,
 } from 'lucide-react'
@@ -28,6 +26,7 @@ import type { AppData, CaseDecision, CodingCase, CodingConsultation, CodingEntry
 import { CollaborationDrawer } from './CollaborationDrawer'
 import { CodingEntryDrawer, type CodingEntryInput } from './CodingEntryDrawer'
 import { CodingTransferDrawer } from './CodingTransferDrawer'
+import { DecisionCodingWorkspace } from './DecisionCodingWorkspace'
 import { DirectCodingDrawer, type DirectCodingInput } from './DirectCodingDrawer'
 import { DocumentLandscape } from './DocumentLandscape'
 import { MedicalJustificationDrawer } from './MedicalJustificationDrawer'
@@ -459,6 +458,41 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
     setDirectCodingDecisionId(undefined)
   }
 
+  const completeCodingDecision = async (decisionId: string, validatePrecode = false) => {
+    const decision = codingCase.decisions.find((item) => item.id === decisionId)
+    const matchingEntries = getDecisionCodingEntries(codingCase.codingEntries, decisionId, decision?.title)
+    if (!decision || matchingEntries.length === 0) return
+    setRunningDecision(decisionId)
+    const matchingIds = new Set(matchingEntries.map((entry) => entry.id))
+    const updatedEntries = codingCase.codingEntries.map((entry) => {
+      if (!matchingIds.has(entry.id)) return entry
+      const canBeDocumentedAsValidated = Boolean(entry.evidenceDocumentId) || validatePrecode
+      return {
+        ...entry,
+        reviewStatus: canBeDocumentedAsValidated ? 'belegt' as const : entry.reviewStatus === 'ungeprüft' ? 'wahrscheinlich' as const : entry.reviewStatus,
+      }
+    })
+    const unprovenWorkCodes = updatedEntries.filter((entry) => matchingIds.has(entry.id) && entry.active && entry.reviewStatus !== 'belegt')
+    const updatedCase: CodingCase = {
+      ...codingCase,
+      codingEntries: updatedEntries,
+      decisions: codingCase.decisions.map((item) => item.id === decisionId ? {
+        ...item,
+        status: 'belegt',
+        resolution: `${validatePrecode ? 'Vorkodierung validiert' : 'Durch Kodierfachkraft fachlich abgeschlossen'}: ${matchingEntries.filter((entry) => entry.active).map((entry) => `${entry.type} ${entry.code}`).join(', ')}${unprovenWorkCodes.length ? '. Arbeitskode ohne Dokument bleibt als vorläufig geprüft gekennzeichnet.' : '.'}`,
+      } : item),
+    }
+    mutateCase(updatedCase)
+    const newRun = await grouperClient.group(updatedCase, `${validatePrecode ? 'Vorkodierung validiert' : 'Kodierentscheidung abgeschlossen'}: ${decision.title}`)
+    mutateCase({
+      ...updatedCase,
+      codingEntries: updatedCase.codingEntries.map((entry) => matchingIds.has(entry.id) ? { ...entry, assessedIteration: newRun.iteration } : entry),
+      decisions: updatedCase.decisions.map((item) => ({ ...item, assessedIteration: newRun.iteration })),
+      grouperRuns: [...updatedCase.grouperRuns, newRun],
+    })
+    setRunningDecision(undefined)
+  }
+
   return (
     <div className="page cockpit-page">
       <div className="case-title-row">
@@ -500,7 +534,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
       </nav>
 
       <div className="case-tools">
-        <button type="button" onClick={() => { setDocumentMapFocus({}); setDocumentMapOpen(true) }}><Map aria-hidden="true" /><span><strong>Dokumentenlandkarte</strong><small>{codingCase.documentMap.length} eingeordnet · {codingCase.documentMap.filter((item) => item.priority === 'jetzt').length} jetzt prüfen</small></span><ArrowRight aria-hidden="true" /></button>
+        <button type="button" onClick={() => { setDocumentMapFocus({}); setDocumentMapOpen(true) }}><MapIcon aria-hidden="true" /><span><strong>Dokumentenlandkarte</strong><small>{codingCase.documentMap.length} eingeordnet · {codingCase.documentMap.filter((item) => item.priority === 'jetzt').length} jetzt prüfen</small></span><ArrowRight aria-hidden="true" /></button>
         <button type="button" onClick={() => setHistoryOpen(true)}><History aria-hidden="true" /><span><strong>Iterationen</strong><small>{codingCase.grouperRuns.length} Grouper-Läufe · Historie bleibt erhalten</small></span><ArrowRight aria-hidden="true" /></button>
       </div>
 
@@ -587,8 +621,10 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
             <div className="decision-list">
               {orderedDecisions.filter((decision) => !['belegt', 'ausgeschlossen'].includes(decision.status)).map((decision) => {
                 const selected = activeDecision === decision.id
-                const resolved = ['belegt', 'ausgeschlossen'].includes(decision.status)
                 const route = getCollaborationRoute(decision)
+                const decisionEntries = getDecisionCodingEntries(codingCase.codingEntries, decision.id, decision.title)
+                const consultation = codingCase.consultations.find((item) => item.decisionId === decision.id)
+                const wikiStarted = codingCase.wikiThreads.some((thread) => thread.decisionId === decision.id)
                 return (
                   <article className={`decision-item ${selected ? 'selected' : ''}`} key={decision.id}>
                     <button className="decision-summary" type="button" aria-expanded={selected} onClick={() => setActiveDecision(selected ? undefined : decision.id)}>
@@ -605,37 +641,22 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
                         <p>{decision.description}</p>
                         <div className="requested-doc"><FileUp aria-hidden="true" /><span><strong>Benötigt:</strong> {decision.requestedDocument}</span></div>
                         {decision.resolution && <div className="resolution"><Check aria-hidden="true" />{decision.resolution}</div>}
-                        {!resolved && (
-                          <>
-                            <div className={`routing-box route-${route.kind}`}>
-                              <div className="routing-copy">
-                                {route.kind === 'consult' ? <Stethoscope aria-hidden="true" /> : route.kind === 'wiki' ? <MessageCircle aria-hidden="true" /> : <UserRoundCheck aria-hidden="true" />}
-                                <span><small>Empfohlener Weg</small><strong>{route.title}</strong><span>{route.reason}</span></span>
-                              </div>
-                              <label>Eigene Fachkenntnis
-                                <select aria-label={`Fachkenntnis für ${decision.title}`} value={decision.knowledge} onChange={(event) => setDecisionKnowledge(decision.id, event.target.value as CaseDecision['knowledge'])}>
-                                  <option value="vertraut">Fachgebiet vertraut</option>
-                                  <option value="unsicher">Grundkenntnisse, aber unsicher</option>
-                                  <option value="fremd">Nicht mein Fachgebiet</option>
-                                </select>
-                              </label>
-                              <div className="routing-actions">
-                                <button className="button secondary routing-code-button" type="button" onClick={() => setDirectCodingDecisionId(decision.id)}><FileCode2 aria-hidden="true" /> ICD / OPS eingeben</button>
-                                <button className={`button ${route.kind === 'wiki' ? 'primary' : 'secondary'}`} type="button" onClick={() => setCollaboration({ mode: 'wiki', decisionId: decision.id })}><MessageCircle aria-hidden="true" /> Wiki fragen</button>
-                                <button className={`button ${route.kind === 'consult' ? 'primary' : 'secondary'}`} type="button" onClick={() => setCollaboration({ mode: 'consult', decisionId: decision.id })}><Stethoscope aria-hidden="true" /> Kodierkonsil</button>
-                              </div>
-                            </div>
-                            <div className="button-row">
-                              <label className={`button ${route.kind === 'self' ? 'primary' : 'secondary'} ${runningDecision === decision.id ? 'disabled' : ''}`}>
-                                {runningDecision === decision.id ? <RotateCw className="spin" aria-hidden="true" /> : <FileUp aria-hidden="true" />}
-                                {runningDecision === decision.id ? 'Grouper läuft …' : 'Nachweis hochladen'}
-                                <input className="sr-only" type="file" disabled={runningDecision === decision.id} onChange={(event) => handleEvidenceUpload(decision.id, event.target.files)} />
-                              </label>
-                              {!decision.required && <button className="button secondary" type="button" disabled={Boolean(runningDecision)} onClick={() => void resolveDecision(decision.id, 'ausgeschlossen')}><X aria-hidden="true" /> Ausschließen</button>}
-                            </div>
-                          </>
-                        )}
-                        {resolved && <div className="button-row"><button className="button secondary" type="button" onClick={() => setDirectCodingDecisionId(decision.id)}><FileCode2 aria-hidden="true" /> ICD / OPS eingeben</button></div>}
+                        <DecisionCodingWorkspace
+                          decision={decision}
+                          entries={decisionEntries}
+                          route={route}
+                          running={runningDecision === decision.id}
+                          wikiStarted={wikiStarted}
+                          consultationStatus={consultation?.status}
+                          onKnowledgeChange={(knowledge) => setDecisionKnowledge(decision.id, knowledge)}
+                          onManualCoding={() => setDirectCodingDecisionId(decision.id)}
+                          onValidatePrecode={() => void completeCodingDecision(decision.id, true)}
+                          onWiki={() => setCollaboration({ mode: 'wiki', decisionId: decision.id })}
+                          onConsult={() => setCollaboration({ mode: 'consult', decisionId: decision.id })}
+                          onEvidenceUpload={(files) => handleEvidenceUpload(decision.id, files)}
+                          onComplete={() => void completeCodingDecision(decision.id)}
+                          onExclude={() => void resolveDecision(decision.id, 'ausgeschlossen')}
+                        />
                       </div>
                     )}
                   </article>
@@ -735,12 +756,25 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
             onCreateConsultation={(input) => createConsultation(decision.id, input)}
             onCompleteConsultation={(consultationId, result, finding) => void completeConsultation(consultationId, result, finding)}
             onSendWikiMessage={(text) => sendWikiMessage(decision.id, text)}
+            onOpenCoding={() => { setCollaboration(undefined); setDirectCodingDecisionId(decision.id) }}
           />
         ) : null
       })()}
       {mbegOpen && <MedicalJustificationDrawer codingCase={codingCase} kisGuides={profile?.kisGuides ?? []} onClose={() => setMbegOpen(false)} onReview={reviewMbeg} />}
     </div>
   )
+}
+
+function getDecisionCodingEntries(entries: CodingEntry[], decisionId: string, decisionTitle?: string) {
+  const contextual = entries.filter((entry) => entry.source.includes(decisionTitle ?? '') && Boolean(decisionTitle))
+  const matches = entries.filter((entry) => {
+    if (decisionId === 'decision-main') return entry.type === 'HD'
+    if (decisionId === 'decision-therapy') return entry.type === 'OPS' && /^8-5(4|5)/i.test(entry.code)
+    if (decisionId === 'decision-palliative') return entry.type === 'OPS' && /^8-98/i.test(entry.code)
+    if (decisionId === 'decision-pneumonia') return entry.type !== 'OPS' && /^J1[2-8]/i.test(entry.code)
+    return false
+  })
+  return [...new Map([...contextual, ...matches].map((entry) => [entry.id, entry])).values()]
 }
 
 function getCollaborationRoute(decision: CaseDecision): { kind: 'self' | 'wiki' | 'consult'; title: string; reason: string } {

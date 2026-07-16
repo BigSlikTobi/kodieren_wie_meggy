@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { BookOpen, Check, FileText, Send, ShieldAlert, Stethoscope, Users, X } from 'lucide-react'
+import { BookOpen, Check, FileCode2, FileText, Send, ShieldAlert, Stethoscope, Users, X } from 'lucide-react'
 import type { CaseDecision, CodingCase, CodingConsultation, WikiThread } from '../types'
 
 interface SharedContextSection {
@@ -15,6 +15,7 @@ interface CollaborationDrawerProps {
   onCreateConsultation: (input: Pick<CodingConsultation, 'specialty' | 'question' | 'expert' | 'priority'>) => void
   onCompleteConsultation: (consultationId: string, result: NonNullable<CodingConsultation['result']>, finding: string) => void
   onSendWikiMessage: (text: string) => void
+  onOpenCoding: () => void
 }
 
 const specialties = ['Unfallchirurgie', 'Herzchirurgie', 'Intensivmedizin', 'Onkologie', 'Nephrologie', 'Pneumologie']
@@ -27,6 +28,7 @@ export function CollaborationDrawer({
   onCreateConsultation,
   onCompleteConsultation,
   onSendWikiMessage,
+  onOpenCoding,
 }: CollaborationDrawerProps) {
   const [specialty, setSpecialty] = useState(decision.title.includes('Tumor') ? 'Onkologie' : 'Pneumologie')
   const [expert, setExpert] = useState('Nächster verfügbarer Fachexperte')
@@ -95,6 +97,7 @@ export function CollaborationDrawer({
               setResult={setResult}
               setFinding={setFinding}
               onComplete={onCompleteConsultation}
+              onOpenCoding={onOpenCoding}
             />
           ) : (
             <form className="consult-form" onSubmit={(event) => {
@@ -112,7 +115,7 @@ export function CollaborationDrawer({
             </form>
           )
         ) : (
-          <WikiChat thread={thread} decision={decision} message={message} setMessage={setMessage} onSend={onSendWikiMessage} />
+          <WikiChat thread={thread} decision={decision} message={message} setMessage={setMessage} onSend={onSendWikiMessage} onOpenCoding={onOpenCoding} />
         )}
       </aside>
     </div>
@@ -127,6 +130,7 @@ function ConsultationResult({
   setResult,
   setFinding,
   onComplete,
+  onOpenCoding,
 }: {
   consultation: CodingConsultation
   contextSections: SharedContextSection[]
@@ -135,6 +139,7 @@ function ConsultationResult({
   setResult: (value: NonNullable<CodingConsultation['result']>) => void
   setFinding: (value: string) => void
   onComplete: (id: string, result: NonNullable<CodingConsultation['result']>, finding: string) => void
+  onOpenCoding: () => void
 }) {
   if (consultation.status === 'abgeschlossen') {
     return (
@@ -143,6 +148,7 @@ function ConsultationResult({
         <h3>Konsil abgeschlossen: {consultation.result}</h3>
         <p>{consultation.finding}</p>
         <small>{consultation.specialty} · {consultation.expert}</small>
+        <button className="button primary" type="button" onClick={onOpenCoding}><FileCode2 aria-hidden="true" /> Konsilergebnis in Kodierung übernehmen</button>
       </div>
     )
   }
@@ -178,12 +184,14 @@ function WikiChat({
   message,
   setMessage,
   onSend,
+  onOpenCoding,
 }: {
   thread?: WikiThread
   decision: CaseDecision
   message: string
   setMessage: (value: string) => void
   onSend: (value: string) => void
+  onOpenCoding: () => void
 }) {
   const send = () => {
     if (!message.trim()) return
@@ -203,6 +211,7 @@ function WikiChat({
         <textarea id="wiki-message" rows={3} placeholder="Grundlagenfrage stellen …" value={message} onChange={(event) => setMessage(event.target.value)} />
         <button className="button primary" type="button" disabled={!message.trim()} onClick={send}><Send aria-hidden="true" /> Senden</button>
       </div>
+      <button className="button secondary full" type="button" disabled={!thread?.messages.length} onClick={onOpenCoding}><FileCode2 aria-hidden="true" /> Wiki-Ergebnis in Kodierung übernehmen</button>
     </div>
   )
 }
