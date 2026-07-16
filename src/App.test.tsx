@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
 import App from './App'
@@ -29,8 +29,36 @@ describe('Kodierpfad prototype', () => {
     expect(screen.getByText('Typisch für dieses Haus')).toBeInTheDocument()
     expect(screen.getByText('Schwieriger Fall')).toBeInTheDocument()
     expect(screen.getByText('1 spezifische DKR erkannt')).toBeInTheDocument()
-    expect(screen.getByText(/Iteration 1/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Falllandkarte' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Kodierkonsil · 0/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Wiki-Chat · 0/i })).toBeInTheDocument()
+    expect(screen.getAllByText(/Iteration 1/i).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: /Abschlussvorschlag/i })).toBeDisabled()
+  })
+
+  it('sortiert Verlaufs- und Ereignisberichte auf der Falllandkarte', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await user.click(screen.getByRole('button', { name: /Fall analysieren/i }))
+
+    expect(screen.getByText('Verlaufsberichte')).toBeInTheDocument()
+    expect(screen.getByText('Ereignisse und Nachweise')).toBeInTheDocument()
+    expect(screen.getByText('Jetzt prüfen')).toBeInTheDocument()
+    expect(screen.getByText('Vorläufig erledigt')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Bronchoskopie- und Biopsiebericht, Vorprüfung · nachvalidieren, Tag 3' }))
+    const documentDialog = screen.getByRole('dialog', { name: 'Dokument einordnen' })
+    expect(within(documentDialog).getByText(/Originalbericht geprüft/i)).toBeInTheDocument()
+    await user.click(within(documentDialog).getByRole('button', { name: /Wiki fragen/i }))
+    const wikiDialog = screen.getByRole('dialog', { name: 'Wiki-Chat' })
+    await user.click(within(wikiDialog).getByRole('button', { name: 'Schließen' }))
+
+    await user.click(screen.getByRole('button', { name: 'Bronchoskopie- und Biopsiebericht, Vorprüfung · nachvalidieren, Tag 3' }))
+    await user.click(within(screen.getByRole('dialog', { name: 'Dokument einordnen' })).getByRole('button', { name: /Nachvalidierung abschließen/i }))
+    await waitFor(() => expect(screen.getAllByText(/Iteration 2/i).length).toBeGreaterThan(0))
+    expect(screen.getByRole('button', { name: 'Bronchoskopie- und Biopsiebericht, Validiert · stimmig, Tag 3' })).toBeInTheDocument()
   })
 
   it('strukturiert, testet und genehmigt eine neue Regel', async () => {
@@ -59,7 +87,7 @@ describe('Kodierpfad prototype', () => {
     await user.click(screen.getByRole('button', { name: /Weiter/i }))
     await user.click(screen.getByRole('button', { name: /Fall analysieren/i }))
 
-    const stored = JSON.parse(localStorage.getItem('kodierpfad-demo-v3') ?? '{}') as { cases?: unknown[] }
+    const stored = JSON.parse(localStorage.getItem('kodierpfad-demo-v4') ?? '{}') as { cases?: unknown[] }
     expect(stored.cases).toHaveLength(1)
   })
 

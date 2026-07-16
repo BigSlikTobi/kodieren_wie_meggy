@@ -28,6 +28,7 @@ import {
 import type { GrouperClient } from '../services/grouper'
 import type { AppData, CaseDecision, CodingCase, CodingConsultation, EvidenceStatus, HospitalProfile } from '../types'
 import { CollaborationDrawer } from './CollaborationDrawer'
+import { DocumentLandscape } from './DocumentLandscape'
 
 interface CaseCockpitProps {
   codingCase: CodingCase
@@ -56,6 +57,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
   const hospital = hospitals.find((item) => item.id === codingCase.hospitalId)
   const profile = hospital?.profiles.find((item) => item.siteId === codingCase.siteId && item.year === codingCase.year)
   const currentRun = codingCase.grouperRuns.at(-1)!
+  const firstOpenDecision = codingCase.decisions.find((decision) => !['belegt', 'ausgeschlossen'].includes(decision.status))
   const openRequired = codingCase.decisions.filter((decision) => decision.required && decision.status !== 'belegt' && decision.status !== 'ausgeschlossen')
   const openAlternatives = codingCase.decisions.filter((decision) => !decision.required && !['belegt', 'ausgeschlossen'].includes(decision.status))
   const evidenceCount = codingCase.decisions.filter((decision) => decision.status === 'belegt').length
@@ -172,6 +174,29 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
     })
   }
 
+  const confirmDocumentReview = async (documentId: string) => {
+    const documentItem = codingCase.documentMap.find((item) => item.id === documentId)
+    if (!documentItem) return
+    setRunningDecision(documentItem.linkedDecisionId)
+    const updatedCase: CodingCase = {
+      ...codingCase,
+      documentMap: codingCase.documentMap.map((item) => item.id === documentId ? {
+        ...item,
+        relevance: 'stimmig',
+        reviewLevel: 'validiert',
+        priority: 'erledigt',
+      } : item),
+    }
+    mutateCase(updatedCase)
+    const newRun = await grouperClient.group(updatedCase, `Nachvalidierung ${documentItem.title}`)
+    mutateCase({
+      ...updatedCase,
+      documentMap: updatedCase.documentMap.map((item) => item.id === documentId ? { ...item, assessedIteration: newRun.iteration } : item),
+      grouperRuns: [...updatedCase.grouperRuns, newRun],
+    })
+    setRunningDecision(undefined)
+  }
+
   const resolveDecision = async (decisionId: string, mode: 'belegt' | 'ausgeschlossen', fileName?: string) => {
     setRunningDecision(decisionId)
     const decision = codingCase.decisions.find((item) => item.id === decisionId)
@@ -189,13 +214,22 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
     const updatedCase: CodingCase = {
       ...codingCase,
       documents: document ? [...codingCase.documents, document] : codingCase.documents,
+      documentMap: codingCase.documentMap.map((item) => item.linkedDecisionId === decisionId && item.availability === 'fehlend'
+        ? mode === 'belegt'
+          ? { ...item, availability: 'vorhanden', relevance: 'stimmig', reviewLevel: 'validiert', priority: 'erledigt' }
+          : { ...item, relevance: 'neutral', reviewLevel: 'nicht-angefordert', priority: 'erledigt' }
+        : item),
       decisions: codingCase.decisions.map((item) => item.id === decisionId
         ? { ...item, status: mode, resolution: mode === 'belegt' ? `Belegt durch ${document?.name}` : 'Im Demopfad fachlich ausgeschlossen' }
         : item),
     }
     mutateCase(updatedCase)
     const newRun = await grouperClient.group(updatedCase, mode === 'ausgeschlossen' ? `${decisionId} ausgeschlossen` : decisionId)
-    mutateCase({ ...updatedCase, grouperRuns: [...updatedCase.grouperRuns, newRun] })
+    mutateCase({
+      ...updatedCase,
+      documentMap: updatedCase.documentMap.map((item) => item.linkedDecisionId === decisionId ? { ...item, assessedIteration: newRun.iteration } : item),
+      grouperRuns: [...updatedCase.grouperRuns, newRun],
+    })
     setRunningDecision(undefined)
   }
 
@@ -221,8 +255,8 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
         </div>
         <div className="case-actions">
           <div className="collaboration-counts">
-            <span><Users aria-hidden="true" /> {codingCase.consultations.filter((item) => item.status !== 'abgeschlossen').length} aktive Konsile</span>
-            <span><MessageCircle aria-hidden="true" /> {codingCase.wikiThreads.length} Wiki-Themen</span>
+            <button type="button" disabled={!firstOpenDecision} onClick={() => firstOpenDecision && setCollaboration({ mode: 'consult', decisionId: firstOpenDecision.id })}><Users aria-hidden="true" /> Kodierkonsil · {codingCase.consultations.filter((item) => item.status !== 'abgeschlossen').length}</button>
+            <button type="button" disabled={!firstOpenDecision} onClick={() => firstOpenDecision && setCollaboration({ mode: 'wiki', decisionId: firstOpenDecision.id })}><MessageCircle aria-hidden="true" /> Wiki-Chat · {codingCase.wikiThreads.length}</button>
           </div>
           <button className="button secondary" type="button" onClick={onNewCase}><Plus aria-hidden="true" /> Neuer Fall</button>
         </div>
@@ -247,23 +281,15 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
         <div><span>Aktueller Grouper-Lauf</span><strong>Iteration {currentRun.iteration}</strong></div>
       </div>
 
-      <section className="timeline-section" aria-labelledby="timeline-title">
-        <div className="section-title-row">
-          <div><span className={`status-pill complexity-${codingCase.complexity}`}>{codingCase.complexity}</span><h2 id="timeline-title">Behandlungskette</h2></div>
-          <p>{codingCase.stayDays} Tage · {codingCase.age} Jahre · {codingCase.careForm}</p>
-        </div>
-        <div className="timeline" role="list" aria-label="Zeitlicher Behandlungsverlauf">
-          {codingCase.timeline.map((event) => (
-            <div className="timeline-event" role="listitem" key={event.id} style={{ flexGrow: Math.max(1, (event.endDay ?? event.day) - event.day + 1) }}>
-              <span className="timeline-dot" />
-              <small>Tag {event.day}{event.endDay ? `–${event.endDay}` : ''}</small>
-              <strong>{event.label}</strong>
-              <span>{event.department}</span>
-            </div>
-          ))}
-        </div>
-        <div className="reason-row">{codingCase.complexityReasons.map((reason) => <span key={reason}>{reason}</span>)}</div>
-      </section>
+      <DocumentLandscape
+        codingCase={codingCase}
+        onOpenDecision={(decisionId) => {
+          setActiveDecision(decisionId)
+          window.setTimeout(() => document.getElementById('checks-title')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0)
+        }}
+        onOpenCollaboration={(mode, decisionId) => setCollaboration({ mode, decisionId })}
+        onConfirmReview={(documentId) => void confirmDocumentReview(documentId)}
+      />
 
       <section className="validation-stage" aria-labelledby="validation-title">
         <div className="section-title-row">

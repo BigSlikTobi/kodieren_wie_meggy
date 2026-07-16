@@ -53,6 +53,30 @@ export interface CaseDocument {
   supports?: string
 }
 
+export type DocumentMapKind = 'verlaufsbericht' | 'ereignisbericht' | 'nachweis' | 'vorkodierung'
+export type DocumentAvailability = 'vorhanden' | 'fehlend'
+export type DocumentRelevance = 'neutral' | 'stimmig' | 'potenziell' | 'offen'
+export type DocumentReviewLevel = 'erfasst' | 'grob-geprüft' | 'nachvalidierung' | 'validiert' | 'nicht-angefordert'
+
+export interface DocumentMapItem {
+  id: string
+  title: string
+  kind: DocumentMapKind
+  availability: DocumentAvailability
+  relevance: DocumentRelevance
+  reviewLevel: DocumentReviewLevel
+  priority: 'jetzt' | 'später' | 'erledigt'
+  startDay: number
+  endDay?: number
+  department: string
+  mapRow: number
+  reason: string
+  codingNote: string
+  resultImpact: string
+  assessedIteration: number
+  linkedDecisionId?: string
+}
+
 export interface CaseDecision {
   id: string
   title: string
@@ -141,6 +165,7 @@ export interface CodingCase {
   currentProcedures: string[]
   timeline: TreatmentEvent[]
   documents: CaseDocument[]
+  documentMap: DocumentMapItem[]
   decisions: CaseDecision[]
   grouperRuns: GrouperRun[]
   createdAt: string
