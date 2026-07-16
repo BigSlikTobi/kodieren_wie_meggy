@@ -50,28 +50,36 @@ describe('Kodierpfad prototype', () => {
     expect(screen.getByRole('button', { name: /Abschlussvorschlag/i })).toBeDisabled()
   })
 
-  it('sortiert Verlaufs- und Ereignisberichte auf der Falllandkarte', async () => {
+  it('verknüpft Ereignisse, Dokumente und Kodes chronologisch auf der Falllandkarte', async () => {
     const user = userEvent.setup()
     render(<App />)
     await openManualCockpit(user)
-    await user.click(screen.getByRole('button', { name: /Dokumentenlandkarte/i }))
+    const eventList = screen.getByRole('list', { name: 'Chronologische Ereignisse' })
+    expect(within(eventList).getAllByRole('listitem')).toHaveLength(13)
+    await user.click(within(eventList).getByRole('listitem', { name: /Bronchoskopische Biopsie/i }))
 
-    expect(screen.getByText('Verlaufsberichte')).toBeInTheDocument()
-    expect(screen.getByText('Ereignisse und Nachweise')).toBeInTheDocument()
+    const directDocumentDialog = screen.getByRole('dialog', { name: 'Bronchoskopie- und Biopsiebericht' })
+    expect(within(directDocumentDialog).getByText(/1-620.0/)).toBeInTheDocument()
+    await user.click(within(directDocumentDialog).getByRole('button', { name: 'Schließen' }))
+
+    expect(screen.getByRole('list', { name: /Behandlungskette mit Dokumenten und Kodierung/i })).toBeInTheDocument()
+    expect(screen.getAllByText('04.07.').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('1-620.0').length).toBeGreaterThan(0)
     expect(screen.getByText('Jetzt prüfen')).toBeInTheDocument()
     expect(screen.getByText('Vorläufig erledigt')).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Bronchoskopie- und Biopsiebericht, Vorprüfung · nachvalidieren, Tag 3' }))
-    const documentDialog = screen.getByRole('dialog', { name: 'Dokument einordnen' })
-    expect(within(documentDialog).getByText(/Originalbericht geprüft/i)).toBeInTheDocument()
+    const chronology = screen.getByRole('list', { name: /Behandlungskette mit Dokumenten und Kodierung/i })
+    await user.click(within(chronology).getAllByRole('button', { name: /Bronchoskopie- und Biopsiebericht/i })[0])
+    const documentDialog = screen.getByRole('dialog', { name: 'Bronchoskopie- und Biopsiebericht' })
+    expect(within(documentDialog).getByText('1-620.0 · Bronchoskopische Diagnostik · illustrative Demoangabe')).toBeInTheDocument()
     await user.click(within(documentDialog).getByRole('button', { name: /Wiki fragen/i }))
     const wikiDialog = screen.getByRole('dialog', { name: 'Wiki-Chat' })
     await user.click(within(wikiDialog).getByRole('button', { name: 'Schließen' }))
 
-    await user.click(screen.getByRole('button', { name: 'Bronchoskopie- und Biopsiebericht, Vorprüfung · nachvalidieren, Tag 3' }))
-    await user.click(within(screen.getByRole('dialog', { name: 'Dokument einordnen' })).getByRole('button', { name: /Nachvalidierung abschließen/i }))
+    await user.click(within(chronology).getAllByRole('button', { name: /Bronchoskopie- und Biopsiebericht/i })[0])
+    await user.click(within(screen.getByRole('dialog', { name: 'Bronchoskopie- und Biopsiebericht' })).getByRole('button', { name: /Kodierung stimmt/i }))
     await waitFor(() => expect(screen.getAllByText(/Iteration 2/i).length).toBeGreaterThan(0))
-    expect(screen.getByRole('button', { name: 'Bronchoskopie- und Biopsiebericht, Validiert · stimmig, Tag 3' })).toBeInTheDocument()
+    expect(screen.getAllByText('Validiert · stimmig').length).toBeGreaterThan(0)
   })
 
   it('erfasst ICD und OPS am Dokument, gruppiert neu und zeigt die KIS-Änderungsliste', async () => {
@@ -81,9 +89,16 @@ describe('Kodierpfad prototype', () => {
     await user.click(screen.getByRole('button', { name: /Dokumentenlandkarte/i }))
 
     const openCodingEditor = async () => {
-      await user.click(screen.getByRole('button', { name: /Bronchoskopie- und Biopsiebericht,/i }))
-      await user.click(within(screen.getByRole('dialog', { name: 'Dokument einordnen' })).getByRole('button', { name: /ICD \/ OPS aus Dokument erfassen/i }))
-      return screen.getByRole('dialog', { name: 'ICD / OPS erfassen' })
+      let documentDialog = screen.queryByRole('dialog', { name: 'Bronchoskopie- und Biopsiebericht' })
+      if (!documentDialog) {
+        const chronology = screen.getByRole('list', { name: /Behandlungskette mit Dokumenten und Kodierung/i })
+        await user.click(within(chronology).getAllByRole('button', { name: /Bronchoskopie- und Biopsiebericht/i })[0])
+        documentDialog = screen.getByRole('dialog', { name: 'Bronchoskopie- und Biopsiebericht' })
+      }
+      await user.click(within(documentDialog).getByRole('button', { name: /Kode erfassen/i }))
+      const editor = screen.getByRole('dialog', { name: 'ICD / OPS erfassen' })
+      await waitFor(() => expect(within(editor).getByRole('button', { name: /neu bewerten|Grouper läuft/i })).toBeEnabled())
+      return editor
     }
 
     let editor = await openCodingEditor()
@@ -95,6 +110,7 @@ describe('Kodierpfad prototype', () => {
 
     editor = await openCodingEditor()
     await user.click(within(editor).getByRole('radio', { name: 'Ändern' }))
+    await user.selectOptions(within(editor).getByLabelText('Bestehenden Kode auswählen'), 'coding-hd-c349')
     await user.clear(within(editor).getByLabelText('ICD- oder OPS-Kode'))
     await user.type(within(editor).getByLabelText('ICD- oder OPS-Kode'), 'C34.1')
     await user.click(within(editor).getByRole('button', { name: /Ändern und neu bewerten/i }))
@@ -106,6 +122,8 @@ describe('Kodierpfad prototype', () => {
     await user.click(within(editor).getByRole('button', { name: /Löschen und neu bewerten/i }))
     await waitFor(() => expect(screen.getAllByText(/Iteration 4/i).length).toBeGreaterThan(0))
 
+    const remainingDocumentDialog = screen.getByRole('dialog', { name: 'Bronchoskopie- und Biopsiebericht' })
+    await user.click(within(remainingDocumentDialog).getByRole('button', { name: 'Schließen' }))
     const mapDialog = screen.getByRole('dialog', { name: 'Dokumentenlandkarte' })
     await user.click(within(mapDialog).getByRole('button', { name: 'Schließen' }))
     await user.click(screen.getByRole('button', { name: /DRG & Entgelte/i }))
@@ -245,11 +263,12 @@ describe('Kodierpfad prototype', () => {
     await openManualCockpit(user)
     await user.click(screen.getByRole('button', { name: /Dokumentenlandkarte/i }))
 
-    await user.click(screen.getByRole('button', { name: 'Bronchoskopie- und Biopsiebericht, Vorprüfung · nachvalidieren, Tag 3' }))
-    const documentDialog = screen.getByRole('dialog', { name: 'Dokument einordnen' })
+    const chronology = screen.getByRole('list', { name: /Behandlungskette mit Dokumenten und Kodierung/i })
+    await user.click(within(chronology).getAllByRole('button', { name: /Bronchoskopie- und Biopsiebericht/i })[0])
+    const documentDialog = screen.getByRole('dialog', { name: 'Bronchoskopie- und Biopsiebericht' })
     expect(within(documentDialog).getByText('ZE / NUB')).toBeInTheDocument()
     expect(within(documentDialog).getByText('MBEG')).toBeInTheDocument()
-    await user.click(within(documentDialog).getByText(/Wo finde ich dieses Dokument im KIS/i))
+    await user.click(within(documentDialog).getByText(/Wo finde ich das im KIS/i))
     expect(within(documentDialog).getByText('Befundportal')).toBeInTheDocument()
     await user.click(within(documentDialog).getByRole('button', { name: 'Schließen' }))
 

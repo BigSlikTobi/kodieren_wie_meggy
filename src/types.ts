@@ -90,9 +90,12 @@ export interface TreatmentEvent {
   id: string
   day: number
   endDay?: number
+  time?: string
+  endTime?: string
   department: string
   type: 'Aufnahme' | 'Diagnostik' | 'Eingriff' | 'Therapie' | 'Verlegung' | 'Intensiv' | 'Entlassung'
   label: string
+  linkedDocumentIds?: string[]
 }
 
 export interface CaseDocument {
@@ -166,6 +169,8 @@ export interface GrouperRun {
 
 export type CodingEntryType = 'HD' | 'ND' | 'OPS'
 export type CodingChange = 'unchanged' | 'added' | 'changed' | 'deleted'
+export type CodingOrigin = 'vorkodierung' | 'manuell' | 'technisch' | 'tool-vorschlag'
+export type CodingReviewStatus = 'ungeprüft' | 'wahrscheinlich' | 'belegt' | 'widersprüchlich'
 
 export interface CodingEntry {
   id: string
@@ -175,9 +180,17 @@ export interface CodingEntry {
   originalCode?: string
   originalDescription?: string
   change: CodingChange
+  origin: CodingOrigin
+  reviewStatus: CodingReviewStatus
   active: boolean
   source: string
   evidenceDocumentId?: string
+  treatmentEventId?: string
+  serviceDate?: string
+  serviceEndDate?: string
+  laterality?: 'keine' | 'links' | 'rechts' | 'beidseits'
+  quantity?: number
+  department?: string
   assessedIteration: number
 }
 

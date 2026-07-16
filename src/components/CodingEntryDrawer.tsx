@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { FileCode2, Plus, RotateCw, Save, Trash2, X } from 'lucide-react'
-import type { CodingChange, CodingEntry, CodingEntryType, DocumentMapItem } from '../types'
+import type { CodingCase, CodingChange, CodingEntry, CodingEntryType, CodingReviewStatus, DocumentMapItem } from '../types'
+import { dateForEvent, formatDay } from './TreatmentRibbon'
 
 export interface CodingEntryInput {
   action: Extract<CodingChange, 'added' | 'changed' | 'deleted'>
@@ -9,10 +10,18 @@ export interface CodingEntryInput {
   description: string
   targetEntryId?: string
   evidenceDocumentId: string
+  treatmentEventId?: string
+  serviceDate?: string
+  serviceEndDate?: string
+  laterality?: CodingEntry['laterality']
+  quantity?: number
+  department?: string
+  reviewStatus: CodingReviewStatus
 }
 
 interface CodingEntryDrawerProps {
   document: DocumentMapItem
+  codingCase: CodingCase
   entries: CodingEntry[]
   running: boolean
   onClose: () => void
@@ -25,13 +34,24 @@ const actionLabels = {
   deleted: 'Löschen',
 }
 
-export function CodingEntryDrawer({ document, entries, running, onClose, onSave }: CodingEntryDrawerProps) {
-  const activeEntries = useMemo(() => entries.filter((entry) => entry.active), [entries])
+export function CodingEntryDrawer({ document, codingCase, entries, running, onClose, onSave }: CodingEntryDrawerProps) {
+  const activeEntries = useMemo(() => entries
+    .filter((entry) => entry.active)
+    .sort((a, b) => Number(b.evidenceDocumentId === document.id) - Number(a.evidenceDocumentId === document.id)), [document.id, entries])
   const [action, setAction] = useState<CodingEntryInput['action']>('added')
   const [type, setType] = useState<CodingEntryType>('ND')
   const [targetEntryId, setTargetEntryId] = useState(activeEntries[0]?.id ?? '')
   const [code, setCode] = useState('')
   const [description, setDescription] = useState('')
+  const linkedEvents = codingCase.timeline.filter((event) => event.linkedDocumentIds?.includes(document.id))
+  const [treatmentEventId, setTreatmentEventId] = useState(linkedEvents[0]?.id ?? '')
+  const initialDate = linkedEvents[0] ? dateForEvent(codingCase, linkedEvents[0]) : codingCase.admissionDate
+  const [serviceDate, setServiceDate] = useState(initialDate ?? '')
+  const [serviceEndDate, setServiceEndDate] = useState('')
+  const [laterality, setLaterality] = useState<NonNullable<CodingEntry['laterality']>>('keine')
+  const [quantity, setQuantity] = useState(1)
+  const [department, setDepartment] = useState(linkedEvents[0]?.department ?? document.department)
+  const [reviewStatus, setReviewStatus] = useState<CodingReviewStatus>('wahrscheinlich')
   const [error, setError] = useState('')
   const targetEntry = activeEntries.find((entry) => entry.id === targetEntryId)
 
@@ -45,6 +65,13 @@ export function CodingEntryDrawer({ document, entries, running, onClose, onSave 
       setType(entry.type)
       setCode(entry.code)
       setDescription(entry.description)
+      setTreatmentEventId(entry.treatmentEventId ?? linkedEvents[0]?.id ?? '')
+      setServiceDate(entry.serviceDate ?? initialDate ?? '')
+      setServiceEndDate(entry.serviceEndDate ?? '')
+      setLaterality(entry.laterality ?? 'keine')
+      setQuantity(entry.quantity ?? 1)
+      setDepartment(entry.department ?? document.department)
+      setReviewStatus(entry.reviewStatus)
     }
   }
 
@@ -55,6 +82,13 @@ export function CodingEntryDrawer({ document, entries, running, onClose, onSave 
     setType(entry.type)
     setCode(entry.code)
     setDescription(entry.description)
+    setTreatmentEventId(entry.treatmentEventId ?? '')
+    setServiceDate(entry.serviceDate ?? '')
+    setServiceEndDate(entry.serviceEndDate ?? '')
+    setLaterality(entry.laterality ?? 'keine')
+    setQuantity(entry.quantity ?? 1)
+    setDepartment(entry.department ?? document.department)
+    setReviewStatus(entry.reviewStatus)
   }
 
   const submit = async () => {
@@ -78,6 +112,13 @@ export function CodingEntryDrawer({ document, entries, running, onClose, onSave 
       description: action === 'deleted' ? targetEntry!.description : description.trim(),
       targetEntryId: action === 'added' ? undefined : targetEntry!.id,
       evidenceDocumentId: document.id,
+      treatmentEventId: treatmentEventId || undefined,
+      serviceDate: serviceDate || undefined,
+      serviceEndDate: serviceEndDate || undefined,
+      laterality: type === 'OPS' ? laterality : undefined,
+      quantity: type === 'OPS' ? quantity : undefined,
+      department: department || undefined,
+      reviewStatus,
     })
   }
 
@@ -130,6 +171,40 @@ export function CodingEntryDrawer({ document, entries, running, onClose, onSave 
             <label>Beschreibung <span>(optional)</span>
               <textarea aria-label="Beschreibung" rows={3} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Kurze fallbezogene Einordnung" />
             </label>
+            <div className="coding-parameter-grid">
+              <label>Ereignisbezug
+                <select aria-label="Ereignisbezug" value={treatmentEventId} onChange={(event) => {
+                  const id = event.target.value
+                  const linkedEvent = codingCase.timeline.find((item) => item.id === id)
+                  setTreatmentEventId(id)
+                  if (linkedEvent) {
+                    setServiceDate(dateForEvent(codingCase, linkedEvent) ?? '')
+                    setDepartment(linkedEvent.department)
+                  }
+                }}>
+                  <option value="">Kein Ereignis gewählt</option>
+                  {codingCase.timeline.map((event) => <option value={event.id} key={event.id}>{formatDay(codingCase, event.day)} · {event.label}</option>)}
+                </select>
+              </label>
+              <label>Fachabteilung
+                <input aria-label="Fachabteilung" value={department} onChange={(event) => setDepartment(event.target.value)} />
+              </label>
+              <label>Leistungsdatum
+                <input aria-label="Leistungsdatum" type="date" value={serviceDate} min={codingCase.admissionDate} max={codingCase.dischargeDate} onChange={(event) => setServiceDate(event.target.value)} />
+              </label>
+              <label>Enddatum <span>(optional)</span>
+                <input aria-label="Enddatum" type="date" value={serviceEndDate} min={serviceDate || codingCase.admissionDate} max={codingCase.dischargeDate} onChange={(event) => setServiceEndDate(event.target.value)} />
+              </label>
+              {type === 'OPS' && <label>Seitenlokalisation
+                <select aria-label="Seitenlokalisation" value={laterality} onChange={(event) => setLaterality(event.target.value as NonNullable<CodingEntry['laterality']>)}><option value="keine">Keine</option><option value="links">Links</option><option value="rechts">Rechts</option><option value="beidseits">Beidseits</option></select>
+              </label>}
+              {type === 'OPS' && <label>Anzahl
+                <input aria-label="Anzahl" type="number" min="1" value={quantity} onChange={(event) => setQuantity(Math.max(1, Number(event.target.value)))} />
+              </label>}
+              <label>Prüfstatus
+                <select aria-label="Prüfstatus" value={reviewStatus} onChange={(event) => setReviewStatus(event.target.value as CodingReviewStatus)}><option value="ungeprüft">Ungeprüft</option><option value="wahrscheinlich">Wahrscheinlich</option><option value="belegt">Belegt</option><option value="widersprüchlich">Widersprüchlich</option></select>
+              </label>
+            </div>
           </div>
         ) : targetEntry ? (
           <div className="coding-delete-preview"><Trash2 aria-hidden="true" /><span><strong>{targetEntry.type} · {targetEntry.code}</strong><small>{targetEntry.description}</small><span>Bleibt als gelöscht in der KIS-Übergabe und Historie sichtbar.</span></span></div>

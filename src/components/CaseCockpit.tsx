@@ -57,6 +57,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
   const [mbegOpen, setMbegOpen] = useState(false)
   const [activeStep, setActiveStep] = useState(1)
   const [documentMapOpen, setDocumentMapOpen] = useState(false)
+  const [documentMapFocus, setDocumentMapFocus] = useState<{ eventId?: string; documentId?: string }>({})
   const [historyOpen, setHistoryOpen] = useState(false)
   const [codingEditorDocumentId, setCodingEditorDocumentId] = useState<string>()
   const [codingTransferOpen, setCodingTransferOpen] = useState(false)
@@ -288,10 +289,18 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
             code: input.code,
             description: input.description || 'Manuell aus Dokument erfasst',
             change: 'added' as const,
+            origin: 'manuell' as const,
+            reviewStatus: input.reviewStatus,
             active: true,
             source: `Manuelle Erfassung aus ${sourceDocument.title}`,
             evidenceDocumentId: sourceDocument.id,
-            assessedIteration: codingCase.grouperRuns.length + 1,
+            treatmentEventId: input.treatmentEventId,
+            serviceDate: input.serviceDate,
+            serviceEndDate: input.serviceEndDate,
+            laterality: input.laterality,
+            quantity: input.quantity,
+            department: input.department,
+            assessedIteration: currentRun.iteration,
           },
         ]
       : codingCase.codingEntries.map((entry) => {
@@ -307,7 +316,14 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
               active: false,
               source: `Manuelle Erfassung aus ${sourceDocument.title}`,
               evidenceDocumentId: sourceDocument.id,
-              assessedIteration: codingCase.grouperRuns.length + 1,
+              treatmentEventId: input.treatmentEventId ?? entry.treatmentEventId,
+              serviceDate: input.serviceDate ?? entry.serviceDate,
+              serviceEndDate: input.serviceEndDate ?? entry.serviceEndDate,
+              laterality: input.laterality ?? entry.laterality,
+              quantity: input.quantity ?? entry.quantity,
+              department: input.department ?? entry.department,
+              reviewStatus: input.reviewStatus,
+              assessedIteration: currentRun.iteration,
             }
           }
           return {
@@ -320,7 +336,14 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
             active: true,
             source: `Manuelle Erfassung aus ${sourceDocument.title}`,
             evidenceDocumentId: sourceDocument.id,
-            assessedIteration: codingCase.grouperRuns.length + 1,
+            treatmentEventId: input.treatmentEventId ?? entry.treatmentEventId,
+            serviceDate: input.serviceDate,
+            serviceEndDate: input.serviceEndDate,
+            laterality: input.laterality,
+            quantity: input.quantity,
+            department: input.department,
+            reviewStatus: input.reviewStatus,
+            assessedIteration: currentRun.iteration,
           }
         })
 
@@ -373,7 +396,12 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
         <div className="guided-state"><span>Pflichtentscheidungen</span><strong>{openRequired.length} offen</strong><small>Iteration {currentRun.iteration} · {evidenceCount} Nachweise belegt</small></div>
       </section>
 
-      <TreatmentRibbon codingCase={codingCase} compact />
+      <TreatmentRibbon codingCase={codingCase} compact onOpenEvent={(eventId) => {
+        const event = codingCase.timeline.find((item) => item.id === eventId)
+        const documentId = event?.linkedDocumentIds?.length === 1 ? event.linkedDocumentIds[0] : undefined
+        setDocumentMapFocus({ eventId, documentId })
+        setDocumentMapOpen(true)
+      }} />
 
       <nav className="coding-step-nav" aria-label="Kodierschritte">
         {['Fall einordnen', 'Basis-DRG', 'Prüfungen', 'DRG & Entgelte', 'Abschluss'].map((label, index) => {
@@ -383,11 +411,11 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
       </nav>
 
       <div className="case-tools">
-        <button type="button" onClick={() => setDocumentMapOpen(true)}><Map aria-hidden="true" /><span><strong>Dokumentenlandkarte</strong><small>{codingCase.documentMap.length} eingeordnet · {codingCase.documentMap.filter((item) => item.priority === 'jetzt').length} jetzt prüfen</small></span><ArrowRight aria-hidden="true" /></button>
+        <button type="button" onClick={() => { setDocumentMapFocus({}); setDocumentMapOpen(true) }}><Map aria-hidden="true" /><span><strong>Dokumentenlandkarte</strong><small>{codingCase.documentMap.length} eingeordnet · {codingCase.documentMap.filter((item) => item.priority === 'jetzt').length} jetzt prüfen</small></span><ArrowRight aria-hidden="true" /></button>
         <button type="button" onClick={() => setHistoryOpen(true)}><History aria-hidden="true" /><span><strong>Iterationen</strong><small>{codingCase.grouperRuns.length} Grouper-Läufe · Historie bleibt erhalten</small></span><ArrowRight aria-hidden="true" /></button>
       </div>
 
-      {documentMapOpen && <div className="fullscreen-backdrop" role="presentation" onMouseDown={() => setDocumentMapOpen(false)}><section className="fullscreen-detail" role="dialog" aria-modal="true" aria-label="Dokumentenlandkarte" onMouseDown={(event) => event.stopPropagation()}><div className="fullscreen-header"><div><div className="page-kicker">Second Screen · {codingCase.caseNumber}</div><h2>Dokumentenlandkarte</h2></div><button className="icon-button" type="button" aria-label="Schließen" onClick={() => setDocumentMapOpen(false)}><X aria-hidden="true" /></button></div><DocumentLandscape codingCase={codingCase} onOpenDecision={(decisionId) => { setActiveDecision(decisionId); setActiveStep(3); setDocumentMapOpen(false) }} onOpenCollaboration={(mode, decisionId) => setCollaboration({ mode, decisionId })} onConfirmReview={(documentId) => void confirmDocumentReview(documentId)} onOpenCodingEntry={setCodingEditorDocumentId} kisGuides={profile?.kisGuides ?? []} /></section></div>}
+      {documentMapOpen && <div className="fullscreen-backdrop" role="presentation" onMouseDown={() => setDocumentMapOpen(false)}><section className="fullscreen-detail" role="dialog" aria-modal="true" aria-label="Dokumentenlandkarte" onMouseDown={(event) => event.stopPropagation()}><div className="fullscreen-header"><div><div className="page-kicker">Second Screen · {codingCase.caseNumber}</div><h2>Dokumentenlandkarte</h2></div><button className="icon-button" type="button" aria-label="Schließen" onClick={() => setDocumentMapOpen(false)}><X aria-hidden="true" /></button></div><DocumentLandscape codingCase={codingCase} initialEventId={documentMapFocus.eventId} initialDocumentId={documentMapFocus.documentId} onOpenDecision={(decisionId) => { setActiveDecision(decisionId); setActiveStep(3); setDocumentMapOpen(false) }} onOpenCollaboration={(mode, decisionId) => setCollaboration({ mode, decisionId })} onConfirmReview={(documentId) => void confirmDocumentReview(documentId)} onOpenCodingEntry={setCodingEditorDocumentId} kisGuides={profile?.kisGuides ?? []} /></section></div>}
 
       <section className="validation-stage guided-step" aria-labelledby="validation-title" hidden={activeStep !== 1}>
         <div className="section-title-row">
@@ -598,7 +626,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
       )}
       {codingEditorDocumentId && (() => {
         const document = codingCase.documentMap.find((item) => item.id === codingEditorDocumentId)
-        return document ? <CodingEntryDrawer document={document} entries={codingCase.codingEntries} running={runningDecision === 'coding-entry'} onClose={() => setCodingEditorDocumentId(undefined)} onSave={saveCodingEntry} /> : null
+        return document ? <CodingEntryDrawer document={document} codingCase={codingCase} entries={codingCase.codingEntries} running={runningDecision === 'coding-entry'} onClose={() => setCodingEditorDocumentId(undefined)} onSave={saveCodingEntry} /> : null
       })()}
       {codingTransferOpen && <CodingTransferDrawer codingCase={codingCase} onClose={() => setCodingTransferOpen(false)} />}
       {collaboration && (() => {

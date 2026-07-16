@@ -2,6 +2,12 @@ import type { AppData, BatchCaseRecord, CodingCase, CodingEntry, DocumentOutcome
 
 const isoNow = () => new Date().toISOString()
 
+function addDays(value: string, days: number) {
+  const date = new Date(`${value}T12:00:00`)
+  date.setDate(date.getDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
 const dimensions = (
   drg: OutcomeDimensionStatus,
   ops: OutcomeDimensionStatus,
@@ -296,6 +302,8 @@ export const demoRules: RuleDefinition[] = [
 export function createDemoCase(input: NewCaseInput): CodingCase {
   const id = `case-${Date.now()}`
   const isComplex = input.scenario === 'pulmo-onko'
+  const admissionDate = input.admissionDate ?? `${input.year}-07-02`
+  const dischargeDate = input.dischargeDate ?? addDays(admissionDate, input.stayDays - 1)
   const selectedProfile = demoHospitals
     .find((hospital) => hospital.id === input.hospitalId)
     ?.profiles.find((profile) => profile.siteId === input.siteId && profile.year === input.year)
@@ -307,21 +315,28 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
   const difficult = isComplex || input.careForm === 'Normal- und Intensivstation'
   const timeline = isComplex
     ? [
-        { id: 't1', day: 1, department: 'Pneumologie', type: 'Aufnahme' as const, label: 'Aufnahme mit thorakalem Befund' },
-        { id: 't2', day: 2, department: 'Pneumologie', type: 'Diagnostik' as const, label: 'Bildgebung und Befundbewertung' },
-        { id: 't3', day: 3, department: 'Pneumologie', type: 'Eingriff' as const, label: 'Bronchoskopische Biopsie' },
+        { id: 't1', day: 1, time: '09:15', department: 'Pneumologie', type: 'Aufnahme' as const, label: 'Aufnahme mit thorakalem Befund', linkedDocumentIds: ['map-pulmo-report', 'map-precode'] },
+        { id: 't2', day: 2, time: '10:30', department: 'Pneumologie', type: 'Diagnostik' as const, label: 'CT-Thorax und Befundbewertung', linkedDocumentIds: ['map-pulmo-report', 'map-microbiology'] },
+        { id: 't3', day: 3, time: '08:45', department: 'Pneumologie', type: 'Eingriff' as const, label: 'Bronchoskopische Biopsie', linkedDocumentIds: ['map-bronchoscopy'] },
+        { id: 't4', day: 4, time: '11:20', department: 'Pneumologie', type: 'Diagnostik' as const, label: 'Endosonografisches Staging', linkedDocumentIds: [] },
+        { id: 't5', day: 6, time: '09:10', department: 'Pneumologie', type: 'Eingriff' as const, label: 'Erweiterte Gewebeentnahme', linkedDocumentIds: ['map-bronchoscopy'] },
         ...(input.careForm === 'Normal- und Intensivstation'
-          ? [{ id: 't-intensive', day: 4, endDay: 7, department: 'Intensivmedizin', type: 'Intensiv' as const, label: 'Intensivmedizinische Behandlung' }]
+          ? [{ id: 't-intensive', day: 4, endDay: 7, time: '14:00', department: 'Intensivmedizin', type: 'Intensiv' as const, label: 'Intensivmedizinische Behandlung', linkedDocumentIds: [] }]
           : []),
-        { id: 't4', day: 9, department: 'Onkologie', type: 'Verlegung' as const, label: 'Verlegung nach Histologie' },
-        { id: 't5', day: 11, endDay: 20, department: 'Onkologie', type: 'Therapie' as const, label: 'Systemische Tumortherapie' },
-        { id: 't6', day: input.stayDays, department: 'Onkologie', type: 'Entlassung' as const, label: 'Entlassung' },
+        { id: 't6', day: 7, time: '15:30', department: 'Pathologie', type: 'Diagnostik' as const, label: 'Histologischer Tumornachweis', linkedDocumentIds: ['map-histology'] },
+        { id: 't7', day: 9, time: '13:00', department: 'Onkologie', type: 'Verlegung' as const, label: 'Verlegung nach Histologie', linkedDocumentIds: ['map-oncology-report'] },
+        { id: 't8', day: 10, time: '08:15', department: 'Onkologie', type: 'Eingriff' as const, label: 'Portimplantation', linkedDocumentIds: [] },
+        { id: 't9', day: 11, endDay: 13, time: '10:00', department: 'Onkologie', type: 'Therapie' as const, label: 'Erster Zyklus systemische Tumortherapie', linkedDocumentIds: ['map-oncology-report', 'map-therapy-proof'] },
+        { id: 't10', day: 14, time: '09:40', department: 'Onkologie', type: 'Diagnostik' as const, label: 'Therapiekontrolle und Restaging', linkedDocumentIds: ['map-oncology-report'] },
+        { id: 't11', day: 16, time: '12:10', department: 'Onkologie', type: 'Therapie' as const, label: 'Supportive Transfusionstherapie', linkedDocumentIds: ['map-therapy-proof'] },
+        { id: 't12', day: Math.min(20, input.stayDays - 1), time: '10:00', department: 'Onkologie', type: 'Therapie' as const, label: 'Weiterführung der Tumortherapie', linkedDocumentIds: ['map-therapy-proof', 'map-palliative-proof'] },
+        { id: 't13', day: input.stayDays, time: '11:00', department: 'Onkologie', type: 'Entlassung' as const, label: 'Entlassung', linkedDocumentIds: ['map-oncology-report'] },
       ]
     : [
-        { id: 't1', day: 1, department: 'Pneumologie', type: 'Aufnahme' as const, label: 'Aufnahme bei Atemwegsinfekt' },
-        { id: 't2', day: 2, department: 'Pneumologie', type: 'Diagnostik' as const, label: 'Bildgebung' },
-        { id: 't3', day: 3, endDay: input.stayDays - 1, department: 'Pneumologie', type: 'Therapie' as const, label: 'Konservative Therapie' },
-        { id: 't4', day: input.stayDays, department: 'Pneumologie', type: 'Entlassung' as const, label: 'Entlassung' },
+        { id: 't1', day: 1, time: '09:00', department: 'Pneumologie', type: 'Aufnahme' as const, label: 'Aufnahme bei Atemwegsinfekt', linkedDocumentIds: ['map-discharge', 'map-precode'] },
+        { id: 't2', day: 2, time: '10:20', department: 'Pneumologie', type: 'Diagnostik' as const, label: 'Bildgebung', linkedDocumentIds: ['map-imaging', 'map-microbiology'] },
+        { id: 't3', day: 3, endDay: input.stayDays - 1, time: '08:00', department: 'Pneumologie', type: 'Therapie' as const, label: 'Konservative Therapie', linkedDocumentIds: ['map-discharge'] },
+        { id: 't4', day: input.stayDays, time: '11:00', department: 'Pneumologie', type: 'Entlassung' as const, label: 'Entlassung', linkedDocumentIds: ['map-discharge'] },
       ]
   const documentMap = isComplex
     ? [
@@ -506,9 +521,14 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           code: 'C34.9',
           description: 'Bronchialkarzinom, nicht näher bezeichnet · illustrative Demoangabe',
           change: 'unchanged',
+          origin: 'vorkodierung',
+          reviewStatus: 'belegt',
           active: true,
           source: 'Vorkodierung · strukturierter Export',
           evidenceDocumentId: 'map-precode',
+          treatmentEventId: 't1',
+          serviceDate: admissionDate,
+          department: 'Gesamtfall',
           assessedIteration: 1,
         },
         {
@@ -517,9 +537,14 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           code: 'J18.9',
           description: 'Pneumonie, nicht näher bezeichnet · illustrative Demoangabe',
           change: 'unchanged',
+          origin: 'vorkodierung',
+          reviewStatus: 'wahrscheinlich',
           active: true,
           source: 'Vorkodierung · strukturierter Export',
           evidenceDocumentId: 'map-pulmo-report',
+          treatmentEventId: 't2',
+          serviceDate: addDays(admissionDate, 1),
+          department: 'Pneumologie',
           assessedIteration: 1,
         },
         {
@@ -528,9 +553,14 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           code: '1-620.0',
           description: 'Bronchoskopische Diagnostik · illustrative Demoangabe',
           change: 'unchanged',
+          origin: 'vorkodierung',
+          reviewStatus: 'ungeprüft',
           active: true,
           source: 'Vorkodierung · strukturierter Export',
           evidenceDocumentId: 'map-bronchoscopy',
+          treatmentEventId: 't3',
+          serviceDate: addDays(admissionDate, 2),
+          department: 'Pneumologie',
           assessedIteration: 1,
         },
         {
@@ -539,9 +569,16 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           code: '8-542.11',
           description: 'Systemische Tumortherapie · illustrative Demoangabe',
           change: 'unchanged',
+          origin: 'vorkodierung',
+          reviewStatus: 'wahrscheinlich',
           active: true,
           source: 'Vorkodierung · strukturierter Export',
           evidenceDocumentId: 'map-oncology-report',
+          treatmentEventId: 't9',
+          serviceDate: addDays(admissionDate, 10),
+          serviceEndDate: addDays(admissionDate, 12),
+          quantity: 1,
+          department: 'Onkologie',
           assessedIteration: 1,
         },
       ]
@@ -552,9 +589,14 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           code: 'J18.9',
           description: 'Pneumonie, nicht näher bezeichnet · illustrative Demoangabe',
           change: 'unchanged',
+          origin: 'vorkodierung',
+          reviewStatus: 'wahrscheinlich',
           active: true,
           source: 'Vorkodierung · strukturierter Export',
           evidenceDocumentId: 'map-precode',
+          treatmentEventId: 't1',
+          serviceDate: admissionDate,
+          department: 'Pneumologie',
           assessedIteration: 1,
         },
       ]
@@ -566,8 +608,8 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
     hospitalId: input.hospitalId,
     siteId: input.siteId,
     year: input.year,
-    admissionDate: input.admissionDate,
-    dischargeDate: input.dischargeDate,
+    admissionDate,
+    dischargeDate,
     age: input.age,
     stayDays: input.stayDays,
     careForm: input.careForm,

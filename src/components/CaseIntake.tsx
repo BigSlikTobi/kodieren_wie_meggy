@@ -34,7 +34,7 @@ export function CaseIntake({ codingCase, hospitals, onBack, onAddSource, onAddEv
   }
 
   const addManualEvent = () => {
-    onAddEvent({ id: `event-manual-${Date.now()}`, day, department, type: eventType, label: `${eventType} · manuell ergänzt` })
+    onAddEvent({ id: `event-manual-${Date.now()}`, day, department, type: eventType, label: `${eventType} · manuell ergänzt`, linkedDocumentIds: [] })
     onAddSource({ id: `source-manual-${Date.now()}`, kind: 'manuell', label: `${eventType} an Tag ${day}`, status: 'bestätigt', detail: `Von der Kodierfachkraft für ${department} ergänzt.`, addedAt: new Date().toISOString() })
     setManualOpen(false)
   }
