@@ -18,12 +18,22 @@ const serverEntry = `export default {
       return new Response('Static asset binding unavailable', { status: 500 })
     }
 
+    const preventIndexing = (response) => {
+      const headers = new Headers(response.headers)
+      headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive, nosnippet, noimageindex')
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      })
+    }
+
     const response = await env.ASSETS.fetch(request)
-    if (response.status !== 404) return response
+    if (response.status !== 404) return preventIndexing(response)
 
     const url = new URL(request.url)
     url.pathname = '/index.html'
-    return env.ASSETS.fetch(new Request(url, request))
+    return preventIndexing(await env.ASSETS.fetch(new Request(url, request)))
   },
 }
 `
