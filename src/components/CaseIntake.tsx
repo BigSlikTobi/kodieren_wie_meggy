@@ -42,13 +42,13 @@ export function CaseIntake({ codingCase, hospitals, onBack, onAddSource, onAddEv
   return (
     <div className="page intake-page">
       <button className="back-link" type="button" onClick={onBack}><ArrowLeft aria-hidden="true" /> Zurück zum Fallpool</button>
-      <div className="intake-heading"><div><div className="page-kicker">Fallbasis · {codingCase.caseNumber}</div><h1>Stimmt der Behandlungsverlauf?</h1><p className="lead">Das Tool führt alle Quellen in einem Verlauf zusammen. Bestätige nur die Fallbasis, bevor die DRG-Hypothese startet.</p></div><span className="status-pill status-wahrscheinlich">Noch nicht bestätigt</span></div>
+      <div className="intake-heading"><div><div className="page-kicker">Fallbasis · {codingCase.caseNumber}</div><h1>Stimmt der Behandlungsverlauf?</h1><p className="lead">Prüfe zuerst nur die erkannten Ereignisse und ihre Reihenfolge. Dokumente, Kodes und DRG-Hypothese folgen auf derselben Fallkarte im nächsten Schritt.</p></div><span className="status-pill status-wahrscheinlich">Noch nicht bestätigt</span></div>
 
       <section className="intake-case-strip" aria-label="Importierte Basisdaten">
         <div><span>Haus</span><strong>{hospital?.name} · {profile?.siteName}</strong></div>
         <div><span>Zeitraum</span><strong>{codingCase.admissionDate && codingCase.dischargeDate ? `${formatDate(codingCase.admissionDate)}–${formatDate(codingCase.dischargeDate)}` : `${codingCase.stayDays} Tage`}</strong></div>
         <div><span>Versorgung</span><strong>{codingCase.careForm}</strong></div>
-        <div><span>Vorkodierung</span><strong>{codingCase.currentMainDiagnosis.split('·')[0]}</strong></div>
+        <div><span>Erkannte Ereignisse</span><strong>{codingCase.timeline.filter((event) => !['Aufnahme', 'Verlegung', 'Entlassung'].includes(event.type)).length} zentral · {codingCase.timeline.length} insgesamt</strong></div>
       </section>
 
       <section className="intake-ribbon-section" aria-label="Gemeinsame Fallkarte vor Bestätigung">
@@ -57,7 +57,7 @@ export function CaseIntake({ codingCase, hospitals, onBack, onAddSource, onAddEv
 
       <div className="intake-grid">
         <section className="intake-sources" aria-labelledby="intake-sources-title">
-          <div className="section-title-row"><div><div className="page-kicker">Herkunft statt Sicherheitsscore</div><h2 id="intake-sources-title">Verwendete Quellen</h2></div></div>
+          <div className="section-title-row"><div><div className="page-kicker">Nachgelagerte Transparenz</div><h2 id="intake-sources-title">Importgrundlage</h2></div><span>Nicht Teil der Ereignisprüfung</span></div>
           <div className="source-provenance-list">
             {codingCase.intakeSources.map((source) => (
               <div key={source.id}><span className={`source-kind source-${source.kind}`}>{source.kind === 'batch' ? <GitMerge aria-hidden="true" /> : source.kind === 'screenshot' ? <FileImage aria-hidden="true" /> : source.kind === 'arztbrief' ? <FileText aria-hidden="true" /> : <ListPlus aria-hidden="true" />}</span><span><strong>{source.label}</strong><small>{source.detail}</small></span><span className={`status-pill status-${source.status === 'bestätigt' ? 'belegt' : source.status === 'widersprüchlich' ? 'widersprüchlich' : 'wahrscheinlich'}`}>{source.status}</span></div>
@@ -66,7 +66,7 @@ export function CaseIntake({ codingCase, hospitals, onBack, onAddSource, onAddEv
         </section>
 
         <section className="intake-add-source" aria-labelledby="intake-add-title">
-          <div className="section-title-row"><div><div className="page-kicker">Nur wenn etwas fehlt</div><h2 id="intake-add-title">Verlauf ergänzen</h2></div></div>
+          <div className="section-title-row"><div><div className="page-kicker">Nur wenn ein Event fehlt</div><h2 id="intake-add-title">Behandlungsverlauf korrigieren</h2></div></div>
           <div className="intake-source-actions">
             <label className="source-action"><FileImage aria-hidden="true" /><span><strong>Screenshot verwenden</strong><small>Vorkodierung oder Stationsverlauf</small></span><Upload aria-hidden="true" /><input className="sr-only" type="file" accept="image/*" onChange={(event) => handleFile(event.target.files, 'screenshot')} /></label>
             <label className="source-action"><FileText aria-hidden="true" /><span><strong>Arztbrief verwenden</strong><small>Verlauf aus Überschriften ergänzen</small></span><Upload aria-hidden="true" /><input className="sr-only" type="file" accept=".pdf,.txt" onChange={(event) => handleFile(event.target.files, 'arztbrief')} /></label>

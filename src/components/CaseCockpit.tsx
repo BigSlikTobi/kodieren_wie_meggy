@@ -22,7 +22,7 @@ import {
   X,
 } from 'lucide-react'
 import type { GrouperClient } from '../services/grouper'
-import type { AppData, CaseDecision, CodingCase, CodingConsultation, CodingEntry, HospitalProfile, TechnicalCaseValue } from '../types'
+import type { AppData, CaseDecision, CodingCase, CodingConsultation, CodingEntry, DocumentMapItem, HospitalProfile, TechnicalCaseValue } from '../types'
 import { CollaborationDrawer } from './CollaborationDrawer'
 import { CodingEntryDrawer, type CodingEntryInput } from './CodingEntryDrawer'
 import { CodingTransferDrawer } from './CodingTransferDrawer'
@@ -241,6 +241,87 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
   const handleEvidenceUpload = (decisionId: string, files: FileList | null) => {
     const file = files?.[0]
     void resolveDecision(decisionId, 'belegt', file?.name)
+  }
+
+  const handleContextDocumentUpload = async (eventId: string, files: FileList | null, scope: 'event' | 'course') => {
+    const file = files?.[0]
+    const treatmentEvent = codingCase.timeline.find((event) => event.id === eventId)
+    if (!file || !treatmentEvent) return
+
+    const linkedDocuments = codingCase.documentMap.filter((document) => scope === 'event'
+      ? treatmentEvent.linkedDocumentIds?.includes(document.id) && document.kind !== 'verlaufsbericht' && document.kind !== 'vorkodierung'
+      : document.kind === 'verlaufsbericht' && document.department === treatmentEvent.department)
+    const targetDocument = linkedDocuments.find((document) => document.priority === 'jetzt')
+      ?? linkedDocuments.find((document) => document.availability === 'fehlend')
+      ?? linkedDocuments[0]
+    const documentId = targetDocument?.id ?? `doc-map-upload-${Date.now()}`
+    const linkedDecisionId = targetDocument?.linkedDecisionId ?? firstOpenDecision?.id
+    const departmentEvents = codingCase.timeline.filter((event) => event.department === treatmentEvent.department)
+    const courseStart = Math.min(...departmentEvents.map((event) => event.day))
+    const courseEnd = Math.max(...departmentEvents.map((event) => event.endDay ?? event.day))
+    const uploadedMapItem: DocumentMapItem = targetDocument ? {
+      ...targetDocument,
+      availability: 'vorhanden',
+      relevance: 'offen',
+      reviewLevel: 'nachvalidierung',
+      priority: 'jetzt',
+      reason: `Neu hochgeladen und ${scope === 'event' ? 'diesem Ereignis' : 'diesem Verlauf'} zugeordnet.`,
+      codingNote: 'LLM-Zuordnung vorbereitet. Erkannte ICD- und OPS-Vorschläge müssen fachlich bestätigt werden.',
+      resultImpact: 'Kodierwirkung und Grouperpfad werden nach der fachlichen Kodeprüfung neu bewertet.',
+      linkedDecisionId,
+    } : {
+      id: documentId,
+      title: file.name,
+      kind: scope === 'event' ? 'ereignisbericht' : 'verlaufsbericht',
+      availability: 'vorhanden',
+      relevance: 'offen',
+      reviewLevel: 'nachvalidierung',
+      priority: 'jetzt',
+      startDay: scope === 'event' ? treatmentEvent.day : courseStart,
+      endDay: scope === 'event' ? treatmentEvent.endDay : courseEnd,
+      department: treatmentEvent.department,
+      mapRow: scope === 'event' ? 2 : 1,
+      reason: `Neu hochgeladen und ${scope === 'event' ? 'diesem Ereignis' : 'diesem Verlauf'} zugeordnet.`,
+      codingNote: 'LLM-Zuordnung vorbereitet. Erkannte ICD- und OPS-Vorschläge müssen fachlich bestätigt werden.',
+      resultImpact: 'Kodierwirkung und Grouperpfad werden nach der fachlichen Kodeprüfung neu bewertet.',
+      outcomeDimensions: { drg: 'offen', ops: 'offen', entgelte: 'neutral', kodierung: 'offen', mbeg: 'neutral' },
+      assessedIteration: currentRun.iteration,
+      linkedDecisionId,
+    }
+    const updatedCase: CodingCase = {
+      ...codingCase,
+      documents: [...codingCase.documents, {
+        id: `source-document-${Date.now()}`,
+        name: file.name,
+        kind: file.name.split('.').pop()?.toUpperCase() || 'Dokument',
+        addedAt: new Date().toISOString(),
+        status: 'wird geprüft',
+        supports: scope === 'event' ? treatmentEvent.label : `Verlauf ${treatmentEvent.department}`,
+      }],
+      documentMap: targetDocument
+        ? codingCase.documentMap.map((document) => document.id === targetDocument.id ? uploadedMapItem : document)
+        : [...codingCase.documentMap, uploadedMapItem],
+      timeline: codingCase.timeline.map((event) => event.id === eventId && !event.linkedDocumentIds?.includes(documentId)
+        ? { ...event, linkedDocumentIds: [...(event.linkedDocumentIds ?? []), documentId] }
+        : event),
+      decisions: linkedDecisionId ? codingCase.decisions.map((decision) => decision.id === linkedDecisionId ? {
+        ...decision,
+        status: 'entscheidung',
+        resolution: `${file.name} hochgeladen. Dokumentzuordnung und Kodevorschläge sind noch fachlich zu prüfen.`,
+      } : decision) : codingCase.decisions,
+    }
+    setRunningDecision(linkedDecisionId ?? documentId)
+    mutateCase(updatedCase)
+    const newRun = await grouperClient.group(updatedCase, `${file.name} ${scope === 'event' ? 'einem Ereignis' : 'einem Verlauf'} zugeordnet`)
+    mutateCase({
+      ...updatedCase,
+      documentMap: updatedCase.documentMap.map((document) => document.id === documentId ? { ...document, assessedIteration: newRun.iteration } : document),
+      decisions: updatedCase.decisions.map((decision) => decision.id === linkedDecisionId ? { ...decision, assessedIteration: newRun.iteration } : decision),
+      grouperRuns: [...updatedCase.grouperRuns, newRun],
+    })
+    setRunningDecision(undefined)
+    setDocumentMapFocus({ eventId, documentId })
+    setDocumentMapOpen(true)
   }
 
   const finalize = () => {
@@ -520,9 +601,9 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
         }} onOpenDecision={(decisionId) => {
           setActiveDecision(decisionId)
           setActiveStep(3)
-        }} />
+        }} onUploadEventDocument={(eventId, files) => void handleContextDocumentUpload(eventId, files, 'event')} onUploadCourseDocument={(eventId, files) => void handleContextDocumentUpload(eventId, files, 'course')} />
         <div className="case-map-secondary-actions">
-          <button type="button" onClick={() => { setDocumentMapFocus({}); setDocumentMapOpen(true) }}><MapIcon aria-hidden="true" /> Dokumente im Detail</button>
+          <button type="button" onClick={() => { setDocumentMapFocus({}); setDocumentMapOpen(true) }}><MapIcon aria-hidden="true" /> Dokumente und Kodes öffnen</button>
           <button type="button" onClick={() => setHistoryOpen(true)}><History aria-hidden="true" /> Iterationen</button>
           <button type="button" onClick={() => setActiveStep(1)}>Weitere Fallbereiche <ArrowRight aria-hidden="true" /></button>
         </div>
@@ -530,13 +611,13 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
 
       {activeStep > 0 && activeStep !== 3 && <>
         <nav className="coding-step-nav" aria-label="Kodierschritte">
-          {['Fall einordnen', 'Basis-DRG', 'Prüfungen', 'DRG & Entgelte', 'Abschluss'].map((label, index) => {
+          {['Fall einordnen', 'Basis-DRG', 'Prüfungen', 'Kodierergebnis', 'Abschluss'].map((label, index) => {
             const step = index + 1
             return <button key={label} type="button" className={activeStep === step ? 'active' : ''} aria-current={activeStep === step ? 'step' : undefined} onClick={() => setActiveStep(step)}><span>{stepStates[index] ? <Check aria-hidden="true" /> : step}</span><strong>{label}</strong>{step === recommendedStep && activeStep !== step && <small>Empfohlen</small>}</button>
           })}
         </nav>
         <div className="case-tools">
-          <button type="button" onClick={() => setActiveStep(0)}><ArrowLeft aria-hidden="true" /><span><strong>Zur Fallkarte</strong><small>Behandlung, Dokumente und Kodierwirkung</small></span><ArrowRight aria-hidden="true" /></button>
+          <button type="button" onClick={() => setActiveStep(0)}><ArrowLeft aria-hidden="true" /><span><strong>Zur Fallkarte</strong><small>Dokumente und Kodes am Behandlungsverlauf</small></span><ArrowRight aria-hidden="true" /></button>
           <button type="button" onClick={() => setHistoryOpen(true)}><History aria-hidden="true" /><span><strong>Iterationen</strong><small>{codingCase.grouperRuns.length} Grouper-Läufe · Historie bleibt erhalten</small></span><ArrowRight aria-hidden="true" /></button>
         </div>
       </>}
@@ -667,11 +748,11 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
           </section>
 
           <section className="entitlement-section guided-step" aria-labelledby="entitlement-title" hidden={activeStep !== 4}>
-            <div className="section-title-row"><div><div className="page-kicker">Gruppierung und KIS-Übergabe</div><h2 id="entitlement-title">DRG und Entgelte</h2></div></div>
+            <div className="section-title-row"><div><div className="page-kicker">Gruppierung und manuelle KIS-Übergabe</div><h2 id="entitlement-title">Kodierergebnis</h2></div><span>Änderungen zuerst · vollständige Liste bei Bedarf</span></div>
             <button className="coding-transfer-entry" type="button" onClick={() => setCodingTransferOpen(true)}>
               <span><FileCode2 aria-hidden="true" /></span>
-              <span><small>Vollständige Kodierung</small><strong>{activeCodingEntries.length} aktiv · {codingChanges.filter((entry) => entry.change === 'added').length} ergänzt · {codingChanges.filter((entry) => entry.change === 'changed').length} geändert · {codingChanges.filter((entry) => entry.change === 'deleted').length} gelöscht</strong><span>Mit Quelle, Iteration und Änderung gegenüber der Vorkodierung</span></span>
-              <span>Für KIS öffnen <ArrowRight aria-hidden="true" /></span>
+              <span><small>Kodierung für die KIS-Übernahme</small><strong>{activeCodingEntries.length} aktiv · {codingChanges.filter((entry) => entry.change === 'added').length} ergänzt · {codingChanges.filter((entry) => entry.change === 'changed').length} geändert · {codingChanges.filter((entry) => entry.change === 'deleted').length} gelöscht</strong><span>Zuerst nur Änderungen; vollständige ICD-/OPS-Liste jederzeit umschaltbar</span></span>
+              <span>Kodierergebnis öffnen <ArrowRight aria-hidden="true" /></span>
             </button>
             <div className="check-grid">
               <CheckRow label="DRG" detail={`${currentRun.drg}, Basis ${currentRun.baseDrg}`} status="geprüft" />
@@ -715,7 +796,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
             <div><span>OPS</span><strong>{codingCase.currentProcedures.join(' · ')}</strong></div>
             <div><span>Entgelte</span><strong>{currentRun.extras.join(', ') || 'Keine zusätzlichen Demovorschläge'}</strong></div>
           </div>
-          <button className="button secondary" type="button" onClick={() => setCodingTransferOpen(true)}><FileCode2 aria-hidden="true" /> Vollständige Kodierung für KIS öffnen</button>
+          <button className="button secondary" type="button" onClick={() => setCodingTransferOpen(true)}><FileCode2 aria-hidden="true" /> Kodierergebnis für KIS öffnen</button>
           {openAlternatives.length > 0 && <div className="inline-note"><Info aria-hidden="true" /><span>Dokumentierte Restunsicherheiten: {openAlternatives.map((item) => item.title).join('; ')}.</span></div>}
           <details className="final-mbeg">
             <summary><span><ShieldCheck aria-hidden="true" /><span><strong>Medizinische Begründung vollstationär</strong><small>{codingCase.medicalJustification.reviewed ? 'Fachlich geprüft und optional weiterleitbar' : 'Optional anzeigen und fachlich prüfen'}</small></span></span><ChevronDown aria-hidden="true" /></summary>
