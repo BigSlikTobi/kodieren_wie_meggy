@@ -5,6 +5,7 @@ import type { CodingCase, CodingEntry, DocumentMapItem, TreatmentEvent } from '.
 interface TreatmentRibbonProps {
   codingCase: CodingCase
   compact?: boolean
+  mode?: 'hypothesis' | 'intake'
   onOpenEvent?: (eventId: string) => void
   onOpenDepartment?: (eventId: string, documentId?: string) => void
   onOpenDecision?: (decisionId: string) => void
@@ -29,7 +30,7 @@ const laneConfig: Array<{ key: ActivityLaneKey; label: string; shortLabel: strin
   { key: 'complex', label: 'Komplex- und Intensivbehandlung', shortLabel: 'Komplex' },
 ]
 
-export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOpenDepartment, onOpenDecision }: TreatmentRibbonProps) {
+export function TreatmentRibbon({ codingCase, compact = false, mode = 'hypothesis', onOpenEvent, onOpenDepartment, onOpenDecision }: TreatmentRibbonProps) {
   const events = [...codingCase.timeline].sort((a, b) => a.day - b.day || (a.time ?? '').localeCompare(b.time ?? ''))
   const departments = getDepartmentStays(events, codingCase.stayDays)
   const documents = codingCase.documentMap ?? []
@@ -50,7 +51,7 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOp
   } : undefined
 
   if (compact) {
-    return <HypothesisCasePath codingCase={codingCase} events={relevantEvents} departments={departments} documents={documents} onOpenEvent={onOpenEvent} onOpenDocument={openDocument} onOpenDecision={onOpenDecision} />
+    return <HypothesisCasePath codingCase={codingCase} events={relevantEvents} departments={departments} documents={documents} mode={mode} onOpenEvent={onOpenEvent} onOpenDocument={openDocument} onOpenDecision={onOpenDecision} />
   }
 
   return (
@@ -108,7 +109,7 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOp
       </div>
 
       {compact ? (
-        <HypothesisCasePath codingCase={codingCase} events={relevantEvents} departments={departments} documents={documents} onOpenEvent={onOpenEvent} onOpenDocument={openDocument} onOpenDecision={onOpenDecision} />
+        <HypothesisCasePath codingCase={codingCase} events={relevantEvents} departments={departments} documents={documents} mode={mode} onOpenEvent={onOpenEvent} onOpenDocument={openDocument} onOpenDecision={onOpenDecision} />
       ) : <>
       <div className="document-grammar" aria-label="Dokumenttypen im Behandlungsverlauf">
         <DocumentGrammarCard icon={<NotebookText aria-hidden="true" />} title="Verlaufsdokumentation" count={courseDocuments.length} detail="Zeitraum · meist ICD und grobe OPS" className="course" />
@@ -190,22 +191,24 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOp
   )
 }
 
-function HypothesisCasePath({ codingCase, events, departments, documents, onOpenEvent, onOpenDocument, onOpenDecision }: {
+function HypothesisCasePath({ codingCase, events, departments, documents, mode, onOpenEvent, onOpenDocument, onOpenDecision }: {
   codingCase: CodingCase
   events: TreatmentEvent[]
   departments: DepartmentStay[]
   documents: DocumentMapItem[]
+  mode: 'hypothesis' | 'intake'
   onOpenEvent?: (eventId: string) => void
   onOpenDocument?: (document: DocumentMapItem) => void
   onOpenDecision?: (decisionId: string) => void
 }) {
+  const intakeMode = mode === 'intake'
   const currentRun = codingCase.grouperRuns.at(-1)
   const activeEntries = codingCase.codingEntries.filter((entry) => entry.active)
   const openDecision = codingCase.decisions.find((decision) => decision.required && !['belegt', 'ausgeschlossen'].includes(decision.status))
   const relevantDocuments = documents.filter((document) => document.kind !== 'vorkodierung')
-  const focusDocument = relevantDocuments.find((document) => document.linkedDecisionId === openDecision?.id && document.priority === 'jetzt')
+  const focusDocument = intakeMode ? undefined : relevantDocuments.find((document) => document.linkedDecisionId === openDecision?.id && document.priority === 'jetzt')
     ?? relevantDocuments.find((document) => getDocumentEvidenceStatus(document).bucket === 'relevant-action')
-  const focusEvent = events.find((event) => focusDocument && event.linkedDocumentIds?.includes(focusDocument.id))
+  const focusEvent = intakeMode ? undefined : events.find((event) => focusDocument && event.linkedDocumentIds?.includes(focusDocument.id))
     ?? events.find((event) => codingCase.codingEntries.some((entry) => entry.treatmentEventId === event.id && entry.reviewStatus !== 'belegt'))
     ?? events[0]
   const openRequired = codingCase.decisions.filter((decision) => decision.required && !['belegt', 'ausgeschlossen'].includes(decision.status)).length
@@ -222,13 +225,18 @@ function HypothesisCasePath({ codingCase, events, departments, documents, onOpen
   const deferredDocuments = relevantDocuments.filter((document) => getDocumentEvidenceStatus(document).bucket === 'nonrelevant-missing').length
   const firstMissingEventIds = new Set<string>()
   const seenMissingDocumentIds = new Set<string>()
+  const firstOpenEventIds = new Set<string>()
+  const seenOpenDocumentIds = new Set<string>()
   pathEvents.forEach((event) => {
     event.linkedDocumentIds?.forEach((documentId) => {
       const document = documents.find((candidate) => candidate.id === documentId)
-      if (!document || seenMissingDocumentIds.has(documentId)) return
+      if (!document) return
       if (getDocumentEvidenceStatus(document).bucket === 'relevant-action' && document.availability === 'fehlend') {
-        firstMissingEventIds.add(event.id)
+        if (!seenMissingDocumentIds.has(documentId)) firstMissingEventIds.add(event.id)
         seenMissingDocumentIds.add(documentId)
+      } else if (getDocumentEvidenceStatus(document).bucket === 'relevant-action') {
+        if (!seenOpenDocumentIds.has(documentId)) firstOpenEventIds.add(event.id)
+        seenOpenDocumentIds.add(documentId)
       }
     })
   })
@@ -246,23 +254,40 @@ function HypothesisCasePath({ codingCase, events, departments, documents, onOpen
   return (
     <section className="quiet-case-map" aria-label="Gemeinsame Fallkarte">
       <header className="case-map-summary">
-        <span className="case-map-drg"><small>DRG-Hypothese · Iteration {currentRun?.iteration ?? 1}</small><strong>{currentRun?.drg ?? '–'}</strong><em>{codingCase.currentMainDiagnosis}</em></span>
-        <span className={`case-map-safety safety-${safety}`}><small>Fallsicherheit</small><strong>{safety}</strong><em>{openRequired} Pflichtprüfung{openRequired === 1 ? '' : 'en'} offen</em></span>
-        <span className="case-map-stay" aria-label={`Verweildauer ${codingCase.stayDays} Tage, mittlere Verweildauer ${stayProfile?.meanDays ?? 'nicht ausgewiesen'}, obere Grenzverweildauer ${upperStay ?? 'nicht ausgewiesen'}`}>
-          <span><small>Verweildauer</small><strong>{codingCase.stayDays} Tage</strong></span>
-          <i><b style={{ left: `${stayPosition}%` }} /></i>
-          <em>MVD {stayProfile?.meanDays ?? '–'} · OGV {upperStay ?? '–'}</em>
-        </span>
+        {intakeMode ? <>
+          <span className="case-map-drg case-map-basis"><small>Fallbasis · automatisch zusammengeführt</small><strong>Vorkodierung {codingCase.currentMainDiagnosis.split('·')[0].trim()}</strong><em>Aus KIS-Daten und vorliegenden Berichten abgeleitet</em></span>
+          <span className="case-map-safety safety-intake"><small>Prüfstatus</small><strong>noch offen</strong><em>{events.length} erkannte Ereignisse</em></span>
+          <span className="case-map-stay case-map-basis-stay" aria-label={`Aufenthalt ${codingCase.stayDays} Tage`}>
+            <span><small>Aufenthalt</small><strong>{codingCase.stayDays} Tage</strong></span>
+            <i><b style={{ left: '100%' }} /></i>
+            <em>{formatDay(codingCase, 1)}–{formatDay(codingCase, codingCase.stayDays)}</em>
+          </span>
+        </> : <>
+          <span className="case-map-drg"><small>DRG-Hypothese · Iteration {currentRun?.iteration ?? 1}</small><strong>{currentRun?.drg ?? '–'}</strong><em>{codingCase.currentMainDiagnosis}</em></span>
+          <span className={`case-map-safety safety-${safety}`}><small>Fallsicherheit</small><strong>{safety}</strong><em>{openRequired} Pflichtprüfung{openRequired === 1 ? '' : 'en'} offen</em></span>
+          <span className="case-map-stay" aria-label={`Verweildauer ${codingCase.stayDays} Tage, mittlere Verweildauer ${stayProfile?.meanDays ?? 'nicht ausgewiesen'}, obere Grenzverweildauer ${upperStay ?? 'nicht ausgewiesen'}`}>
+            <span><small>Verweildauer</small><strong>{codingCase.stayDays} Tage</strong></span>
+            <i><b style={{ left: `${stayPosition}%` }} /></i>
+            <em>MVD {stayProfile?.meanDays ?? '–'} · OGV {upperStay ?? '–'}</em>
+          </span>
+        </>}
       </header>
 
-      <button className="case-map-next-action" type="button" onClick={openFocus} disabled={!openDecision && !focusEvent && !focusDocument}>
-        <span className="case-map-next-number">1</span>
-        <span><small>Nächster belastbarer Schritt</small><strong>{focusTitle}</strong><em>{focusReason}</em></span>
-        <span>Prüfen <ArrowRight aria-hidden="true" /></span>
-      </button>
+      {intakeMode ? (
+        <div className="case-map-intake-guidance">
+          <span><ShieldCheck aria-hidden="true" /></span>
+          <span><small>Vor der DRG-Hypothese</small><strong>Passen Fachabteilungen, Zeitfolge und zentrale Behandlungen?</strong><em>Bestätige hier nur die gemeinsame Fallbasis. Kodierentscheidungen folgen danach.</em></span>
+        </div>
+      ) : (
+        <button className="case-map-next-action" type="button" onClick={openFocus} disabled={!openDecision && !focusEvent && !focusDocument}>
+          <span className="case-map-next-number">1</span>
+          <span><small>Nächster belastbarer Schritt</small><strong>{focusTitle}</strong><em>{focusReason}</em></span>
+          <span>Prüfen <ArrowRight aria-hidden="true" /></span>
+        </button>
+      )}
 
       <figure className="case-map-figure">
-        <figcaption><span><strong>Behandlung, Dokumente und Kodierwirkung</strong><small>Ein gemeinsamer Verlauf · Klick öffnet nur die gewählte Stelle</small></span><span>{formatDay(codingCase, 1)}–{formatDay(codingCase, codingCase.stayDays)}</span></figcaption>
+        <figcaption><span><strong>Behandlung, Dokumente und Kodierwirkung</strong><small>{intakeMode ? 'Gemeinsame Fallkarte · Grundlage vor Bestätigung' : 'Ein gemeinsamer Verlauf · Klick öffnet nur die gewählte Stelle'}</small></span><span>{formatDay(codingCase, 1)}–{formatDay(codingCase, codingCase.stayDays)}</span></figcaption>
         <div className="case-map-departments" aria-label="Fachabteilungen im Verlauf">
           {departments.map((stay) => <span className={`${stay.intensive ? 'is-intensive' : ''} ${stay === leadingStay ? 'is-leading' : ''}`} style={{ width: `${(duration(stay) / codingCase.stayDays) * 100}%` }} key={`${stay.department}-${stay.start}`}><strong>{stay.department}</strong><small>{duration(stay)} Tag{duration(stay) === 1 ? '' : 'e'}</small></span>)}
         </div>
@@ -272,18 +297,19 @@ function HypothesisCasePath({ codingCase, events, departments, documents, onOpen
               const linkedDocuments = documents.filter((document) => event.linkedDocumentIds?.includes(document.id) && document.kind !== 'vorkodierung')
               const linkedCodes = activeEntries.filter((entry) => entry.treatmentEventId === event.id)
               const primaryDocument = linkedDocuments.find((document) => document.priority === 'jetzt') ?? linkedDocuments[0]
-              const isFocus = event.id === focusEvent?.id
+              const isFocus = !intakeMode && event.id === focusEvent?.id
               const hasMissingRelevant = firstMissingEventIds.has(event.id)
               const hasCheckedRelevant = linkedDocuments.some((document) => getDocumentEvidenceStatus(document).bucket === 'relevant-checked')
               const hasOpenRelevant = linkedDocuments.some((document) => getDocumentEvidenceStatus(document).bucket === 'relevant-action')
-              const state = isFocus ? 'focus' : hasMissingRelevant ? 'missing' : hasCheckedRelevant ? 'checked' : 'context'
-              const statusLabel = isFocus ? 'jetzt prüfen' : hasMissingRelevant ? 'Nachweis fehlt' : hasCheckedRelevant ? 'geprüft' : hasOpenRelevant ? 'gleicher Nachweis' : 'Kontext'
+              const isIntakeReview = intakeMode && firstOpenEventIds.has(event.id)
+              const state = isFocus || isIntakeReview ? 'focus' : hasMissingRelevant ? 'missing' : hasCheckedRelevant ? 'checked' : 'context'
+              const statusLabel = isFocus ? 'jetzt prüfen' : isIntakeReview ? 'noch prüfen' : hasMissingRelevant ? (intakeMode ? 'Quelle fehlt' : 'Nachweis fehlt') : hasCheckedRelevant ? 'geprüft' : hasOpenRelevant ? 'gleicher Nachweis' : (intakeMode ? 'aus Fallbasis' : 'Kontext')
               const kindLabel = primaryDocument?.kind === 'verlaufsbericht' ? 'Verlauf' : primaryDocument?.kind === 'ereignisbericht' ? 'Bericht' : primaryDocument?.kind === 'nachweis' ? 'Nachweis' : 'Arztbrief'
               const groupingCodes = linkedCodes.filter((entry) => (entry.groupingImpact ?? 'potenziell') !== 'ohne-änderung')
               const groupingRelevant = groupingCodes.length > 0 || linkedDocuments.some((document) => [document.outcomeDimensions.drg, document.outcomeDimensions.ops, document.outcomeDimensions.entgelte].includes('relevant'))
-              const label = `${formatDay(codingCase, event.day)}, ${event.department}, ${event.label}. ${primaryDocument ? `${primaryDocument.title}: ${statusLabel}` : 'Aus Entlassungsbericht abgeleitet'}. ${groupingRelevant ? 'Mögliche Grouperwirkung.' : 'Derzeit keine Grouperwirkung.'}`
-              return (
-                <button className={`case-map-event state-${state}`} type="button" key={event.id} aria-label={label} title={primaryDocument?.title} onClick={() => onOpenEvent?.(event.id)}>
+              const impactLabel = intakeMode ? 'Mögliche Kodierwirkung' : 'Mögliche Grouperwirkung'
+              const label = `${formatDay(codingCase, event.day)}, ${event.department}, ${event.label}. ${primaryDocument ? `${primaryDocument.title}: ${statusLabel}` : 'Aus Entlassungsbericht abgeleitet'}. ${groupingRelevant ? `${impactLabel}.` : intakeMode ? 'Nur Teil der Fallbasis.' : 'Derzeit keine Grouperwirkung.'}`
+              const content = <>
                   <span className="case-map-event-meta">{formatDay(codingCase, event.day)}<em>{event.department}</em></span>
                   <span className="case-map-event-node"><EventIcon event={event} /></span>
                   <strong>{event.label}</strong>
@@ -292,23 +318,25 @@ function HypothesisCasePath({ codingCase, events, departments, documents, onOpen
                     <span>{kindLabel} · {statusLabel}</span>{linkedDocuments.length > 1 && <b>+{linkedDocuments.length - 1}</b>}
                   </span>
                   {groupingRelevant && <span className="case-map-grouping">◆ {groupingCodes.map((entry) => entry.type).join(' · ') || 'DRG'}</span>}
-                </button>
-              )
+                </>
+              return onOpenEvent ? (
+                <button className={`case-map-event state-${state}`} type="button" key={event.id} aria-label={label} title={primaryDocument?.title} onClick={() => onOpenEvent(event.id)}>{content}</button>
+              ) : <div className={`case-map-event state-${state} is-static`} key={event.id} aria-label={label} title={primaryDocument?.title}>{content}</div>
             })}
           </div>
         </div>
         <div className="case-map-legend" aria-label="Legende">
-          <span className="state-checked"><i>✓</i> geprüft</span>
-          <span className="state-focus"><i>?</i> jetzt prüfen</span>
-          <span className="state-missing"><i>!</i> relevanter Nachweis fehlt</span>
-          <span className="state-context"><i>○</i> Kontext</span>
-          <span><i>◆</i> mögliche Grouperwirkung</span>
+          <span className="state-checked"><i>✓</i> {intakeMode ? 'Quelle geprüft' : 'geprüft'}</span>
+          <span className="state-focus"><i>?</i> {intakeMode ? 'noch prüfen' : 'jetzt prüfen'}</span>
+          <span className="state-missing"><i>!</i> {intakeMode ? 'Quelle fehlt' : 'relevanter Nachweis fehlt'}</span>
+          <span className="state-context"><i>○</i> {intakeMode ? 'aus Fallbasis' : 'Kontext'}</span>
+          <span><i>◆</i> {intakeMode ? 'mögliche Kodierwirkung' : 'mögliche Grouperwirkung'}</span>
         </div>
       </figure>
 
       <footer className="case-map-footer">
-        <details><summary>Warum dieser Schritt?</summary><p>Vorgesehen ist die Ableitung aus Vorkodierung, DKR, ICD-10-GM, OPS, Grouperpfad sowie Haus- und Vergleichsfällen. Im Prototyp sind diese Signale simuliert.</p></details>
-        <span>{deferredDocuments ? `${deferredDocuments} derzeit nicht benötigte${deferredDocuments === 1 ? 's' : ''} fehlende${deferredDocuments === 1 ? 's' : ''} Dokument${deferredDocuments === 1 ? '' : 'e'} ausgeblendet` : 'Keine derzeit irrelevanten Dokumentlücken'}</span>
+        {intakeMode ? <details><summary>Was wird hier bestätigt?</summary><p>Nur die zeitliche Fallbasis aus Aufnahme, Fachabteilungen, Behandlungen und vorhandenen Quellen. Die DRG- und Entgelthypothese wird erst danach bewertet.</p></details> : <details><summary>Warum dieser Schritt?</summary><p>Vorgesehen ist die Ableitung aus Vorkodierung, DKR, ICD-10-GM, OPS, Grouperpfad sowie Haus- und Vergleichsfällen. Im Prototyp sind diese Signale simuliert.</p></details>}
+        <span>{deferredDocuments ? intakeMode ? `${deferredDocuments} derzeit nicht benötigte fehlende Quelle${deferredDocuments === 1 ? '' : 'n'} ausgeblendet` : `${deferredDocuments} derzeit nicht benötigte${deferredDocuments === 1 ? 's' : ''} fehlende${deferredDocuments === 1 ? 's' : ''} Dokument${deferredDocuments === 1 ? '' : 'e'} ausgeblendet` : intakeMode ? 'Keine weiteren Quellenlücken erkannt' : 'Keine derzeit irrelevanten Dokumentlücken'}</span>
       </footer>
     </section>
   )

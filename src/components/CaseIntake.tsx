@@ -51,9 +51,8 @@ export function CaseIntake({ codingCase, hospitals, onBack, onAddSource, onAddEv
         <div><span>Vorkodierung</span><strong>{codingCase.currentMainDiagnosis.split('·')[0]}</strong></div>
       </section>
 
-      <section className="intake-ribbon-section" aria-labelledby="intake-ribbon-title">
-        <div className="section-title-row"><div><div className="page-kicker">Automatisch zusammengeführt</div><h2 id="intake-ribbon-title">Behandlungskette</h2></div><span>{codingCase.timeline.length} erkannte Ereignisse</span></div>
-        <TreatmentRibbon codingCase={codingCase} />
+      <section className="intake-ribbon-section" aria-label="Gemeinsame Fallkarte vor Bestätigung">
+        <TreatmentRibbon codingCase={codingCase} compact mode="intake" />
       </section>
 
       <div className="intake-grid">

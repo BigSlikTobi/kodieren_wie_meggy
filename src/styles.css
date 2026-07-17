@@ -759,6 +759,7 @@ button.department-stay:hover { filter: brightness(.98); }
 
 /* Ruhige, gemeinsame Fallkarte */
 .quiet-case-map { display: grid; gap: 12px; margin-top: 22px; }
+.intake-ribbon-section .quiet-case-map { margin-top: 0; }
 .case-map-summary { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(150px, .55fr) minmax(220px, .8fr); border-block: 1px solid var(--border); background: transparent; }
 .case-map-summary > span { min-width: 0; display: grid; align-content: center; gap: 3px; padding: 13px 16px; border-right: 1px solid var(--border); }
 .case-map-summary > span:last-child { border-right: 0; }
@@ -768,6 +769,7 @@ button.department-stay:hover { filter: brightness(.98); }
 .case-map-safety.safety-hoch strong { color: var(--success); }
 .case-map-safety.safety-mittel strong { color: var(--warning); }
 .case-map-safety.safety-niedrig strong { color: var(--danger); }
+.case-map-safety.safety-intake strong { color: var(--warning); }
 .case-map-stay { grid-template-columns: auto minmax(90px, 1fr); }
 .case-map-stay > span { display: grid; gap: 3px; }
 .case-map-stay > i { position: relative; height: 4px; margin-left: 8px; border-radius: 999px; background: var(--border); }
@@ -783,6 +785,12 @@ button.department-stay:hover { filter: brightness(.98); }
 .case-map-next-action strong { font-size: .75rem; font-weight: 600; }
 .case-map-next-action > span:last-child { display: inline-flex; align-items: center; gap: 5px; color: var(--warning); font-size: .65rem; font-weight: 650; white-space: nowrap; }
 .case-map-next-action svg { width: 14px; height: 14px; }
+.case-map-intake-guidance { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 11px; align-items: center; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--primary) 28%, var(--border)); border-radius: 10px; background: color-mix(in srgb, var(--primary-soft) 58%, var(--surface)); color: var(--text); }
+.case-map-intake-guidance > span:first-child { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 50%; background: var(--primary); color: #fff; }
+.case-map-intake-guidance > span:first-child svg { width: 15px; height: 15px; }
+.case-map-intake-guidance > span:last-child { min-width: 0; display: grid; gap: 2px; }
+.case-map-intake-guidance small, .case-map-intake-guidance em { overflow: hidden; color: var(--text-muted); font-size: .58rem; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+.case-map-intake-guidance strong { font-size: .75rem; font-weight: 600; }
 
 .case-map-figure { overflow: hidden; margin: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
 .case-map-figure figcaption { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 13px; border-bottom: 1px solid var(--border); }
@@ -801,6 +809,9 @@ button.department-stay:hover { filter: brightness(.98); }
 .case-map-event-track::before { content: ''; position: absolute; top: 58px; right: 30px; left: 30px; height: 1px; background: var(--border-strong); }
 .case-map-event { position: relative; min-width: 0; display: grid; grid-template-rows: 25px 34px 42px 25px 18px; justify-items: center; gap: 4px; padding: 5px 7px 7px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--text); cursor: pointer; text-align: center; }
 .case-map-event:hover { background: var(--surface-soft); }
+.case-map-event.is-static { cursor: default; }
+.case-map-event.is-static:hover { background: transparent; }
+.case-map-event.is-static.state-focus:hover { background: var(--warning-soft); }
 .case-map-event.state-focus { border-color: color-mix(in srgb, var(--warning) 42%, var(--border)); background: var(--warning-soft); }
 .case-map-event-meta { max-width: 100%; display: grid; color: var(--text-muted); font-size: .52rem; line-height: 1.25; }
 .case-map-event-meta em { overflow: hidden; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
