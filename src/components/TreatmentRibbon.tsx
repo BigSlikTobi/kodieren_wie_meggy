@@ -1,4 +1,4 @@
-import { Activity, ArrowRight, Building2, Cross, FileCheck2, FileCode2, FileQuestion, Microscope, NotebookText, Pill, Scissors, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { Activity, ArrowRight, BookOpenCheck, Building2, Cross, Database, FileCheck2, FileCode2, FileQuestion, GitBranch, Microscope, NotebookText, Pill, Route, Scissors, ShieldAlert, ShieldCheck, Target } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { CodingCase, CodingEntry, DocumentMapItem, TreatmentEvent } from '../types'
 
@@ -7,6 +7,7 @@ interface TreatmentRibbonProps {
   compact?: boolean
   onOpenEvent?: (eventId: string) => void
   onOpenDepartment?: (eventId: string, documentId?: string) => void
+  onOpenDecision?: (decisionId: string) => void
 }
 
 interface DepartmentStay {
@@ -28,7 +29,7 @@ const laneConfig: Array<{ key: ActivityLaneKey; label: string; shortLabel: strin
   { key: 'complex', label: 'Komplex- und Intensivbehandlung', shortLabel: 'Komplex' },
 ]
 
-export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOpenDepartment }: TreatmentRibbonProps) {
+export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOpenDepartment, onOpenDecision }: TreatmentRibbonProps) {
   const events = [...codingCase.timeline].sort((a, b) => a.day - b.day || (a.time ?? '').localeCompare(b.time ?? ''))
   const departments = getDepartmentStays(events, codingCase.stayDays)
   const documents = codingCase.documentMap ?? []
@@ -102,6 +103,9 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOp
         </div>
       </div>
 
+      {compact ? (
+        <HypothesisCasePath codingCase={codingCase} events={relevantEvents} documents={documents} onOpenEvent={onOpenEvent} onOpenDocument={openDocument} onOpenDecision={onOpenDecision} />
+      ) : <>
       <div className="document-grammar" aria-label="Dokumenttypen im Behandlungsverlauf">
         <DocumentGrammarCard icon={<NotebookText aria-hidden="true" />} title="Verlaufsdokumentation" count={courseDocuments.length} detail="Zeitraum · meist ICD und grobe OPS" className="course" />
         <DocumentGrammarCard icon={<FileCheck2 aria-hidden="true" />} title="Ereignisdokumentation" count={eventDocuments.length} detail="Zeitpunkt · gezielte ICD oder OPS" className="event" />
@@ -109,8 +113,6 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOp
       </div>
 
       <DocumentHypothesisPanel documents={documents} codingEntries={codingCase.codingEntries} onOpenDocument={openDocument} />
-
-      {compact && <GroupingInfluencePanel codingEntries={codingCase.codingEntries} />}
 
       {courseDocuments.length > 0 && (
         <div className="course-document-lane">
@@ -173,6 +175,7 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOp
         <span><i className="legend-proof" />Quadrat = Leistungsnachweis</span>
         <span><FileCode2 aria-hidden="true" />Klick öffnet die passende Stelle der Dokumentenlandkarte</span>
       </div>
+      </>}
 
       {codingCase.technicalValues.length > 0 && (
         <div className="ribbon-technical" aria-label="Importierte technische Leistungen">
@@ -181,6 +184,106 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOp
       )}
     </section>
   )
+}
+
+function HypothesisCasePath({ codingCase, events, documents, onOpenEvent, onOpenDocument, onOpenDecision }: {
+  codingCase: CodingCase
+  events: TreatmentEvent[]
+  documents: DocumentMapItem[]
+  onOpenEvent?: (eventId: string) => void
+  onOpenDocument?: (document: DocumentMapItem) => void
+  onOpenDecision?: (decisionId: string) => void
+}) {
+  const currentRun = codingCase.grouperRuns.at(-1)
+  const activeEntries = codingCase.codingEntries.filter((entry) => entry.active)
+  const openDecision = codingCase.decisions.find((decision) => decision.required && !['belegt', 'ausgeschlossen'].includes(decision.status))
+  const relevantDocuments = documents.filter((document) => document.kind !== 'vorkodierung')
+  const focusDocument = relevantDocuments.find((document) => document.linkedDecisionId === openDecision?.id && document.priority === 'jetzt')
+    ?? relevantDocuments.find((document) => getDocumentEvidenceStatus(document).bucket === 'relevant-action')
+  const focusEvent = events.find((event) => focusDocument && event.linkedDocumentIds?.includes(focusDocument.id))
+    ?? events.find((event) => codingCase.codingEntries.some((entry) => entry.treatmentEventId === event.id && entry.reviewStatus !== 'belegt'))
+    ?? events[0]
+  const openRequired = codingCase.decisions.filter((decision) => decision.required && !['belegt', 'ausgeschlossen'].includes(decision.status)).length
+  const relevantGaps = relevantDocuments.filter((document) => getDocumentEvidenceStatus(document).bucket === 'relevant-action').length
+  const safety = openRequired === 0 && relevantGaps === 0 ? 'hoch' : openRequired <= 1 && relevantGaps <= 1 ? 'mittel' : 'niedrig'
+  const focusTitle = openDecision?.title ?? focusDocument?.title ?? focusEvent?.label ?? 'Abschlussprüfung'
+  const focusReason = openDecision?.effect ?? focusDocument?.resultImpact ?? 'Die verbleibende Belegkette gegen die aktuelle DRG-Hypothese prüfen.'
+  const pathEvents = events.filter((event) => {
+    const linkedDocuments = documents.filter((document) => event.linkedDocumentIds?.includes(document.id))
+    const linkedCodes = activeEntries.filter((entry) => entry.treatmentEventId === event.id)
+    return linkedDocuments.length > 0 || linkedCodes.length > 0 || ['Eingriff', 'Therapie', 'Intensiv'].includes(event.type)
+  })
+
+  const openFocus = () => {
+    if (openDecision && onOpenDecision) onOpenDecision(openDecision.id)
+    else if (focusDocument && onOpenDocument) onOpenDocument(focusDocument)
+    else if (focusEvent) onOpenEvent?.(focusEvent.id)
+  }
+
+  return (
+    <section className="hypothesis-case-path" aria-label="Hypothesengesteuerter Fallpfad">
+      <header className="hypothesis-path-head">
+        <span className="hypothesis-target-icon"><Target aria-hidden="true" /></span>
+        <span>
+          <small>Prüfziel · Iteration {currentRun?.iteration ?? 1}</small>
+          <strong>DRG {currentRun?.drg ?? '–'} belastbar verifizieren oder falsifizieren</strong>
+          <p>Nur die nächste ergebnisrelevante Belegkette öffnen – nicht vorsorglich den ganzen Fall neu kodieren.</p>
+        </span>
+        <span className="simulation-label">Simulierte Prüfsignale</span>
+      </header>
+
+      <div className="hypothesis-sources" aria-label="Vorgesehene Quellen der Hypothese">
+        <HypothesisSource icon={<FileCode2 aria-hidden="true" />} label="Ausgangskodierung" value={`${activeEntries.filter((entry) => entry.origin === 'vorkodierung').length} Vorkodes`} detail="Startpunkt, kein Beleg" />
+        <HypothesisSource icon={<BookOpenCheck aria-hidden="true" />} label="Regelwerke" value="DKR · ICD-10-GM · OPS" detail="Prüfung vorgesehen" />
+        <HypothesisSource icon={<GitBranch aria-hidden="true" />} label="Grouperraum" value={`Pfad ${currentRun?.drg ?? 'offen'}`} detail="bis zu 1.450 Fallpauschalen · Änderungsvarianz vorgesehen" />
+        <HypothesisSource icon={<Database aria-hidden="true" />} label="Haus- & Verlaufswissen" value={`${codingCase.comparableCases} Vergleichsfälle`} detail={`${codingCase.hospitalTypicality} · Fachabteilung ↔ MDC`} />
+      </div>
+
+      <article className="shortest-path-action">
+        <span className="shortest-path-number">1</span>
+        <span>
+          <small>Nächster kürzester belastbarer Schritt</small>
+          <strong>{focusTitle}</strong>
+          <p>{focusReason}</p>
+        </span>
+        <button type="button" onClick={openFocus} disabled={!openDecision && !focusEvent && !focusDocument}>Gezielt prüfen <ArrowRight aria-hidden="true" /></button>
+      </article>
+
+      <section className="evidence-chain" aria-label="Verlauf, Dokumente und Kodierung als gemeinsame Belegkette">
+        <header><span><Route aria-hidden="true" /><strong>Behandlungsverlauf als Belegkette</strong></span><small>LLM-Entwurf aus den hochgeladenen Entlassungsberichten</small></header>
+        <div className="evidence-chain-list">
+          {pathEvents.map((event) => {
+            const linkedDocuments = documents.filter((document) => event.linkedDocumentIds?.includes(document.id))
+            const linkedCodes = activeEntries.filter((entry) => entry.treatmentEventId === event.id)
+            const hasRelevantGap = linkedDocuments.some((document) => getDocumentEvidenceStatus(document).bucket === 'relevant-action')
+            const hasUnprovenCode = linkedCodes.some((entry) => entry.reviewStatus !== 'belegt' && entry.groupingImpact !== 'ohne-änderung')
+            const hasProof = linkedDocuments.some((document) => ['grob-geprüft', 'validiert'].includes(document.reviewLevel)) && linkedCodes.some((entry) => entry.reviewStatus === 'belegt')
+            const state = hasRelevantGap || hasUnprovenCode ? 'open' : hasProof ? 'checked' : 'context'
+            const isFocus = event.id === focusEvent?.id
+            return (
+              <button className={`evidence-chain-row state-${state} ${isFocus ? 'is-focus' : ''}`} type="button" key={event.id} onClick={() => onOpenEvent?.(event.id)}>
+                <span className="chain-event"><EventIcon event={event} /><span><small>{formatDay(codingCase, event.day)} · {event.department}</small><strong>{event.label}</strong></span></span>
+                <span className="chain-documents"><small>Dokumentbezug</small><strong>{linkedDocuments.length ? linkedDocuments.map((document) => document.title).join(' · ') : 'Noch kein Einzeldokument'}</strong><em>{linkedDocuments.length ? linkedDocuments.map((document) => getDocumentEvidenceStatus(document).detail).join(' · ') : 'aus Entlassungsbericht abgeleitet'}</em></span>
+                <span className="chain-coding"><small>Kodierwirkung</small><strong>{linkedCodes.length ? linkedCodes.map((entry) => `${entry.type} ${entry.code}`).join(' · ') : 'Kodierung offen'}</strong><em>{linkedCodes.length ? linkedCodes.map((entry) => groupingImpactLabels[entry.groupingImpact ?? 'potenziell'].label).join(' · ') : 'erst bei Ergebnisrelevanz bearbeiten'}</em></span>
+                <span className={`chain-state ${state}`}>{state === 'checked' ? <ShieldCheck aria-hidden="true" /> : state === 'open' ? <ShieldAlert aria-hidden="true" /> : <FileQuestion aria-hidden="true" />}{isFocus ? 'Jetzt prüfen' : state === 'checked' ? 'Belegt' : state === 'open' ? 'Offen' : 'Kontext'}</span>
+              </button>
+            )
+          })}
+        </div>
+      </section>
+
+      <GroupingInfluencePanel codingEntries={codingCase.codingEntries} />
+
+      <footer className={`case-safety safety-${safety}`}>
+        <ShieldCheck aria-hidden="true" />
+        <span><small>Arbeitsstand, keine fachliche Garantie</small><strong>Fallsicherheit {safety}</strong><p>{openRequired} Pflichtentscheidung{openRequired === 1 ? '' : 'en'} und {relevantGaps} ergebnisrelevante Dokumentlücke{relevantGaps === 1 ? '' : 'n'} verbleiben.</p></span>
+      </footer>
+    </section>
+  )
+}
+
+function HypothesisSource({ icon, label, value, detail }: { icon: ReactNode; label: string; value: string; detail: string }) {
+  return <span>{icon}<span><small>{label}</small><strong>{value}</strong><em>{detail}</em></span></span>
 }
 
 function LengthOfStayBand({ codingCase }: { codingCase: CodingCase }) {

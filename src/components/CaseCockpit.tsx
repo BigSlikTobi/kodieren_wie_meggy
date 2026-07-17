@@ -514,9 +514,9 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
       </div>
 
       <section className="guided-overview" aria-label="Aktueller Fallüberblick">
-        <div className="guided-hypothesis"><span>Aktuelle DRG-Hypothese</span><strong>{currentRun.drg}</strong><small>{codingCase.currentMainDiagnosis}</small></div>
-        <div className="guided-next"><span>Empfohlene nächste Aktion</span><strong>{nextAction}</strong><button type="button" onClick={() => setActiveStep(recommendedStep)}>Jetzt bearbeiten <ArrowRight aria-hidden="true" /></button></div>
-        <div className="guided-state"><span>Pflichtentscheidungen</span><strong>{openRequired.length} offen</strong><small>Iteration {currentRun.iteration} · {evidenceCount} Nachweise belegt · {relevantDocumentGaps.length} relevante Dokumentlücken</small></div>
+        <div className="guided-hypothesis"><span>Ausgangshypothese · Iteration {currentRun.iteration}</span><strong>{currentRun.drg} verifizieren oder falsifizieren</strong><small>{codingCase.currentMainDiagnosis}</small></div>
+        <div className="guided-next"><span>Kürzester belastbarer Weg zum abschließbaren Fall</span><strong>{nextAction}</strong><button type="button" onClick={() => setActiveStep(recommendedStep)}>Nächsten Schritt öffnen <ArrowRight aria-hidden="true" /></button></div>
+        <div className="guided-state"><span>Fallsicherheit · simulierter Arbeitsstand</span><strong>{openRequired.length === 0 && relevantDocumentGaps.length === 0 ? 'hoch' : openRequired.length <= 1 && relevantDocumentGaps.length <= 1 ? 'mittel' : 'niedrig'}</strong><small>{openRequired.length} Pflichtentscheidungen offen · {evidenceCount} Nachweise belegt · {relevantDocumentGaps.length} relevante Dokumentlücken</small></div>
       </section>
 
       <TreatmentRibbon codingCase={codingCase} compact onOpenEvent={(eventId) => {
@@ -527,6 +527,9 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
       }} onOpenDepartment={(eventId, documentId) => {
         setDocumentMapFocus({ eventId, documentId })
         setDocumentMapOpen(true)
+      }} onOpenDecision={(decisionId) => {
+        setActiveDecision(decisionId)
+        setActiveStep(3)
       }} />
 
       <nav className="coding-step-nav" aria-label="Kodierschritte">
