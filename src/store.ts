@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { initialData } from './data/demo'
+import { getDrgLengthOfStayProfile } from './data/drgCatalog'
 import type { AppData, CodingCase, CodingEntry } from './types'
 
 const STORAGE_KEY = 'kodierpfad-demo-v4'
@@ -62,6 +63,10 @@ function normalizeData(value: AppData): AppData {
         ...entry,
         origin: entry.origin ?? 'vorkodierung',
         reviewStatus: entry.reviewStatus ?? 'ungeprüft',
+      })),
+      grouperRuns: codingCase.grouperRuns.map((run) => ({
+        ...run,
+        lengthOfStay: run.lengthOfStay ?? getDrgLengthOfStayProfile(run.drg),
       })),
       timeline: codingCase.timeline.map((event) => ({ ...event, linkedDocumentIds: event.linkedDocumentIds ?? [] })),
       technicalValues: codingCase.technicalValues ?? [],

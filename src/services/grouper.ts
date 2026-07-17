@@ -1,4 +1,5 @@
 import type { CodingCase, GrouperRun } from '../types'
+import { getDrgLengthOfStayProfile } from '../data/drgCatalog'
 
 export interface GrouperClient {
   group(codingCase: CodingCase, trigger?: string): Promise<GrouperRun>
@@ -64,6 +65,7 @@ export class MockGrouperClient implements GrouperClient {
       reason,
       changed,
       extras,
+      lengthOfStay: getDrgLengthOfStayProfile(drg),
     }
   }
 }

@@ -70,6 +70,9 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
   const openRequired = codingCase.decisions.filter((decision) => decision.required && decision.status !== 'belegt' && decision.status !== 'ausgeschlossen')
   const openAlternatives = codingCase.decisions.filter((decision) => !decision.required && !['belegt', 'ausgeschlossen'].includes(decision.status))
   const evidenceCount = codingCase.decisions.filter((decision) => decision.status === 'belegt').length
+  const relevantDocumentGaps = codingCase.documentMap.filter((document) => document.kind !== 'vorkodierung' && (
+    document.priority === 'jetzt' || [document.outcomeDimensions.drg, document.outcomeDimensions.ops, document.outcomeDimensions.entgelte].includes('relevant')
+  ) && (document.availability === 'fehlend' || !['grob-geprÃ¼ft', 'validiert'].includes(document.reviewLevel)))
   const unresolvedTechnical = codingCase.technicalValues.filter((value) => !['bestÃ¤tigt', 'korrigiert'].includes(value.status))
   const blockingTechnical = unresolvedTechnical.filter((value) => value.groupingRelevant)
   const codingChanges = codingCase.codingEntries.filter((entry) => entry.change !== 'unchanged')
@@ -310,516 +313,9 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
             return {
               ...entry,
               code: entry.originalCode ?? entry.code,
-              description: entry.originalDescription ?? entry.description,
-              originalCode: entry.originalCode ?? entry.code,
-              originalDescription: entry.originalDescription ?? entry.description,
-              change: 'deleted' as const,
-              active: false,
-              source: `Manuelle Erfassung aus ${sourceDocument.title}`,
-              evidenceDocumentId: sourceDocument.id,
-              treatmentEventId: input.treatmentEventId ?? entry.treatmentEventId,
-              serviceDate: input.serviceDate ?? entry.serviceDate,
-              serviceEndDate: input.serviceEndDate ?? entry.serviceEndDate,
-              laterality: input.laterality ?? entry.laterality,
-              quantity: input.quantity ?? entry.quantity,
-              department: input.department ?? entry.department,
-              reviewStatus: input.reviewStatus,
-              assessedIteration: currentRun.iteration,
-            }
-          }
-          return {
-            ...entry,
-            code: input.code,
-            description: input.description || entry.description,
-            originalCode: entry.originalCode ?? entry.code,
-            originalDescription: entry.originalDescription ?? entry.description,
-            change: entry.change === 'added' ? 'added' as const : 'changed' as const,
-            active: true,
-            source: `Manuelle Erfassung aus ${sourceDocument.title}`,
-            evidenceDocumentId: sourceDocument.id,
-            treatmentEventId: input.treatmentEventId ?? entry.treatmentEventId,
-            serviceDate: input.serviceDate,
-            serviceEndDate: input.serviceEndDate,
-            laterality: input.laterality,
-            quantity: input.quantity,
-            department: input.department,
-            reviewStatus: input.reviewStatus,
-            assessedIteration: currentRun.iteration,
-          }
-        })
-
-    const activeMainDiagnosis = changedEntries.find((entry) => entry.active && entry.type === 'HD')
-    const activeProcedures = changedEntries.filter((entry) => entry.active && entry.type === 'OPS')
-    const actionLabel = input.action === 'added' ? 'ergÃ¤nzt' : input.action === 'changed' ? 'geÃ¤ndert' : 'gelÃ¶scht'
-    const updatedCase: CodingCase = {
-      ...codingCase,
-      currentMainDiagnosis: activeMainDiagnosis ? `${activeMainDiagnosis.code} Â· ${activeMainDiagnosis.description}` : 'Keine aktive Hauptdiagnose',
-      currentProcedures: activeProcedures.length ? activeProcedures.map((entry) => `${entry.code} Â· ${entry.description}`) : ['Keine aktive OPS-Kodierung'],
-      codingEntries: changedEntries,
-      documentMap: codingCase.documentMap.map((item) => item.id === sourceDocument.id ? {
-        ...item,
-        codingNote: `${input.type} ${input.code} wurde ${actionLabel}. Automatische Neubewertung lÃ¤uft.`,
-        outcomeDimensions: { ...item.outcomeDimensions, kodierung: 'geprÃ¼ft' },
-      } : item),
-    }
-    mutateCase(updatedCase)
-    const newRun = await grouperClient.group(updatedCase, `Kodierung ${actionLabel}: ${input.type} ${input.code}`)
-    mutateCase({
-      ...updatedCase,
-      codingEntries: updatedCase.codingEntries.map((entry) => entry.id === target?.id || (input.action === 'added' && entry.id === changedEntries.at(-1)?.id) ? { ...entry, assessedIteration: newRun.iteration } : entry),
-      documentMap: updatedCase.documentMap.map((item) => item.id === sourceDocument.id ? { ...item, assessedIteration: newRun.iteration } : item),
-      grouperRuns: [...updatedCase.grouperRuns, newRun],
-    })
-    setRunningDecision(undefined)
-    setCodingEditorDocumentId(undefined)
-  }
-
-  const saveDirectCoding = async (input: DirectCodingInput) => {
-    const decision = codingCase.decisions.find((item) => item.id === input.decisionId)
-    const target = input.targetEntryId ? codingCase.codingEntries.find((entry) => entry.id === input.targetEntryId) : undefined
-    if (!decision || (input.action !== 'added' && !target)) return
-    setRunningDecision('direct-coding')
-    const entryId = target?.id ?? `coding-direct-${Date.now()}`
-    const source = `Direkteingabe zur PrÃ¼fung â€ž${decision.title}â€œ`
-    const updatedEntries: CodingEntry[] = input.action === 'added'
-      ? [...codingCase.codingEntries, {
-          id: entryId,
-          type: input.type,
-          code: input.code,
-          description: input.description || 'Direkt erfasster Arbeitskode Â· illustrative Demoangabe',
-          change: 'added',
-          origin: 'manuell',
-          reviewStatus: 'ungeprÃ¼ft',
-          active: true,
-          source,
-          treatmentEventId: input.treatmentEventId,
-          serviceDate: input.serviceDate,
-          serviceEndDate: input.serviceEndDate,
-          laterality: input.laterality,
-          quantity: input.quantity,
-          department: input.department,
-          assessedIteration: currentRun.iteration,
-        }]
-      : codingCase.codingEntries.map((entry) => {
-          if (entry.id !== target!.id) return entry
-          if (input.action === 'deleted') return {
-            ...entry,
-            code: entry.originalCode ?? entry.code,
-            description: entry.originalDescription ?? entry.description,
-            originalCode: entry.originalCode ?? entry.code,
-            originalDescription: entry.originalDescription ?? entry.description,
-            change: 'deleted',
-            origin: 'manuell',
-            reviewStatus: 'ungeprÃ¼ft',
-            active: false,
-            source,
-            evidenceDocumentId: undefined,
-            assessedIteration: currentRun.iteration,
-          }
-          return {
-            ...entry,
-            code: input.code,
-            description: input.description || entry.description,
-            originalCode: entry.originalCode ?? entry.code,
-            originalDescription: entry.originalDescription ?? entry.description,
-            change: entry.change === 'added' ? 'added' : 'changed',
-            origin: 'manuell',
-            reviewStatus: 'ungeprÃ¼ft',
-            active: true,
-            source,
-            evidenceDocumentId: undefined,
-            treatmentEventId: input.treatmentEventId,
-            serviceDate: input.serviceDate,
-            serviceEndDate: input.serviceEndDate,
-            laterality: input.laterality,
-            quantity: input.quantity,
-            department: input.department,
-            assessedIteration: currentRun.iteration,
-          }
-        })
-    const activeMainDiagnosis = updatedEntries.find((entry) => entry.active && entry.type === 'HD')
-    const activeProcedures = updatedEntries.filter((entry) => entry.active && entry.type === 'OPS')
-    const actionLabel = input.action === 'added' ? 'ergÃ¤nzt' : input.action === 'changed' ? 'geÃ¤ndert' : 'gelÃ¶scht'
-    const updatedCase: CodingCase = {
-      ...codingCase,
-      currentMainDiagnosis: activeMainDiagnosis ? `${activeMainDiagnosis.code} Â· ${activeMainDiagnosis.description}` : 'Keine aktive Hauptdiagnose',
-      currentProcedures: activeProcedures.length ? activeProcedures.map((entry) => `${entry.code} Â· ${entry.description}`) : ['Keine aktive OPS-Kodierung'],
-      codingEntries: updatedEntries,
-    }
-    mutateCase(updatedCase)
-    const newRun = await grouperClient.group(updatedCase, `Direkte Kodierung ${actionLabel}: ${input.type} ${input.code}`)
-    mutateCase({
-      ...updatedCase,
-      codingEntries: updatedCase.codingEntries.map((entry) => entry.id === entryId ? { ...entry, assessedIteration: newRun.iteration } : entry),
-      decisions: updatedCase.decisions.map((item) => ({ ...item, assessedIteration: newRun.iteration })),
-      grouperRuns: [...updatedCase.grouperRuns, newRun],
-    })
-    setRunningDecision(undefined)
-    setDirectCodingDecisionId(undefined)
-  }
-
-  const completeCodingDecision = async (decisionId: string, validatePrecode = false) => {
-    const decision = codingCase.decisions.find((item) => item.id === decisionId)
-    const matchingEntries = getDecisionCodingEntries(codingCase.codingEntries, decisionId, decision?.title)
-    if (!decision || matchingEntries.length === 0) return
-    setRunningDecision(decisionId)
-    const matchingIds = new Set(matchingEntries.map((entry) => entry.id))
-    const updatedEntries = codingCase.codingEntries.map((entry) => {
-      if (!matchingIds.has(entry.id)) return entry
-      const canBeDocumentedAsValidated = Boolean(entry.evidenceDocumentId) || validatePrecode
-      return {
-        ...entry,
-        reviewStatus: canBeDocumentedAsValidated ? 'belegt' as const : entry.reviewStatus === 'ungeprÃ¼ft' ? 'wahrscheinlich' as const : entry.reviewStatus,
-      }
-    })
-    const unprovenWorkCodes = updatedEntries.filter((entry) => matchingIds.has(entry.id) && entry.active && entry.reviewStatus !== 'belegt')
-    const updatedCase: CodingCase = {
-      ...codingCase,
-      codingEntries: updatedEntries,
-      decisions: codingCase.decisions.map((item) => item.id === decisionId ? {
-        ...item,
-        status: 'belegt',
-        resolution: `${validatePrecode ? 'Vorkodierung validiert' : 'Durch Kodierfachkraft fachlich abgeschlossen'}: ${matchingEntries.filter((entry) => entry.active).map((entry) => `${entry.type} ${entry.code}`).join(', ')}${unprovenWorkCodes.length ? '. Arbeitskode ohne Dokument bleibt als vorlÃ¤ufig geprÃ¼ft gekennzeichnet.' : '.'}`,
-      } : item),
-    }
-    mutateCase(updatedCase)
-    const newRun = await grouperClient.group(updatedCase, `${validatePrecode ? 'Vorkodierung validiert' : 'Kodierentscheidung abgeschlossen'}: ${decision.title}`)
-    mutateCase({
-      ...updatedCase,
-      codingEntries: updatedCase.codingEntries.map((entry) => matchingIds.has(entry.id) ? { ...entry, assessedIteration: newRun.iteration } : entry),
-      decisions: updatedCase.decisions.map((item) => ({ ...item, assessedIteration: newRun.iteration })),
-      grouperRuns: [...updatedCase.grouperRuns, newRun],
-    })
-    setRunningDecision(undefined)
-  }
-
-  return (
-    <div className="page cockpit-page">
-      <div className="case-title-row">
-        <div>
-          <div className="page-kicker">Fall {codingCase.caseNumber} Â· illustrative Demodaten</div>
-          <h1>{codingCase.label}</h1>
-          <p>{hospital?.name} Â· {profile?.siteName} Â· Regelpaket {codingCase.year}</p>
-        </div>
-        <div className="case-actions">
-          <div className="collaboration-counts">
-            <button type="button" disabled={!firstOpenDecision} onClick={() => firstOpenDecision && setCollaboration({ mode: 'consult', decisionId: firstOpenDecision.id })}><Users aria-hidden="true" /> Kodierkonsil Â· {codingCase.consultations.filter((item) => item.status !== 'abgeschlossen').length}</button>
-            <button type="button" disabled={!firstOpenDecision} onClick={() => firstOpenDecision && setCollaboration({ mode: 'wiki', decisionId: firstOpenDecision.id })}><MessageCircle aria-hidden="true" /> Wiki-Chat Â· {codingCase.wikiThreads.length}</button>
-          </div>
-          <button className="button secondary" type="button" onClick={onNewCase}><Plus aria-hidden="true" /> Fall wechseln</button>
-        </div>
-      </div>
-
-      <section className="guided-overview" aria-label="Aktueller FallÃ¼berblick">
-        <div className="guided-hypothesis"><span>Aktuelle DRG-Hypothese</span><strong>{currentRun.drg}</strong><small>{codingCase.currentMainDiagnosis}</small></div>
-        <div className="guided-next"><span>Empfohlene nÃ¤chste Aktion</span><strong>{nextAction}</strong><button type="button" onClick={() => setActiveStep(recommendedStep)}>Jetzt bearbeiten <ArrowRight aria-hidden="true" /></button></div>
-        <div className="guided-state"><span>Pflichtentscheidungen</span><strong>{openRequired.length} offen</strong><small>Iteration {currentRun.iteration} Â· {evidenceCount} Nachweise belegt</small></div>
-      </section>
-
-      <TreatmentRibbon codingCase={codingCase} compact onOpenEvent={(eventId) => {
-        const event = codingCase.timeline.find((item) => item.id === eventId)
-        const documentId = event?.linkedDocumentIds?.length === 1 ? event.linkedDocumentIds[0] : undefined
-        setDocumentMapFocus({ eventId, documentId })
-        setDocumentMapOpen(true)
-      }} onOpenDepartment={(eventId, documentId) => {
-        setDocumentMapFocus({ eventId, documentId })
-        setDocumentMapOpen(true)
-      }} />
-
-      <nav className="coding-step-nav" aria-label="Kodierschritte">
-        {['Fall einordnen', 'Basis-DRG', 'PrÃ¼fungen', 'DRG & Entgelte', 'Abschluss'].map((label, index) => {
-          const step = index + 1
-          return <button key={label} type="button" className={activeStep === step ? 'active' : ''} aria-current={activeStep === step ? 'step' : undefined} onClick={() => setActiveStep(step)}><span>{stepStates[index] ? <Check aria-hidden="true" /> : step}</span><strong>{label}</strong>{step === recommendedStep && activeStep !== step && <small>Empfohlen</small>}</button>
-        })}
-      </nav>
-
-      <div className="case-tools">
-        <button type="button" onClick={() => { setDocumentMapFocus({}); setDocumentMapOpen(true) }}><MapIcon aria-hidden="true" /><span><strong>Dokumentenlandkarte</strong><small>{codingCase.documentMap.length} eingeordnet Â· {codingCase.documentMap.filter((item) => item.priority === 'jetzt').length} jetzt prÃ¼fen</small></span><ArrowRight aria-hidden="true" /></button>
-        <button type="button" onClick={() => setHistoryOpen(true)}><History aria-hidden="true" /><span><strong>Iterationen</strong><small>{codingCase.grouperRuns.length} Grouper-LÃ¤ufe Â· Historie bleibt erhalten</small></span><ArrowRight aria-hidden="true" /></button>
-      </div>
-
-      {documentMapOpen && <div className="fullscreen-backdrop" role="presentation" onMouseDown={() => setDocumentMapOpen(false)}><section className="fullscreen-detail" role="dialog" aria-modal="true" aria-label="Dokumentenlandkarte" onMouseDown={(event) => event.stopPropagation()}><div className="fullscreen-header"><div><div className="page-kicker">Second Screen Â· {codingCase.caseNumber}</div><h2>Dokumentenlandkarte</h2></div><button className="icon-button" type="button" aria-label="SchlieÃŸen" onClick={() => setDocumentMapOpen(false)}><X aria-hidden="true" /></button></div><DocumentLandscape codingCase={codingCase} initialEventId={documentMapFocus.eventId} initialDocumentId={documentMapFocus.documentId} onOpenDecision={(decisionId) => { setActiveDecision(decisionId); setActiveStep(3); setDocumentMapOpen(false) }} onOpenCollaboration={(mode, decisionId) => setCollaboration({ mode, decisionId })} onConfirmReview={(documentId) => void confirmDocumentReview(documentId)} onOpenCodingEntry={setCodingEditorDocumentId} kisGuides={profile?.kisGuides ?? []} /></section></div>}
-
-      <section className="validation-stage guided-step" aria-labelledby="validation-title" hidden={activeStep !== 1}>
-        <div className="section-title-row">
-          <div><div className="page-kicker">Validierung 1 Â· Fall einordnen</div><h2 id="validation-title">Was fÃ¼r ein Fall ist das?</h2></div>
-          <span>Technische ErsteinschÃ¤tzung Â· manuell Ã¤nderbar</span>
-        </div>
-        <div className="validation-grid">
-          <article className="validation-result">
-            <div className="validation-result-head">
-              <span className="validation-icon"><Building2 aria-hidden="true" /></span>
-              <span><small>Krankenhausmuster</small><strong>{codingCase.hospitalTypicality === 'typisch' ? 'Typisch fÃ¼r dieses Haus' : codingCase.hospitalTypicality === 'untypisch' ? 'Untypisch fÃ¼r dieses Haus' : 'Noch ungeklÃ¤rt'}</strong></span>
-              <span className={`status-pill status-${codingCase.hospitalTypicality === 'typisch' ? 'belegt' : codingCase.hospitalTypicality === 'untypisch' ? 'widersprÃ¼chlich' : 'ungeklÃ¤rt'}`}>{codingCase.hospitalTypicalitySource === 'technisch' ? 'Technisch' : 'Manuell'}</span>
-            </div>
-            <p>{codingCase.hospitalTypicalityReason}</p>
-            <div className="validation-evidence"><strong>{codingCase.comparableCases}</strong><span>vergleichbare FÃ¤lle im Demo-Zeitraum</span></div>
-            <label>Einordnung Ã¤ndern
-              <select aria-label="Krankenhaustypik manuell Ã¤ndern" value={codingCase.hospitalTypicality} onChange={(event) => setTypicality(event.target.value as CodingCase['hospitalTypicality'])}>
-                <option value="typisch">Typisch</option>
-                <option value="untypisch">Untypisch</option>
-                <option value="ungeklÃ¤rt">UngeklÃ¤rt</option>
-              </select>
-            </label>
-          </article>
-
-          <article className="validation-result">
-            <div className="validation-result-head">
-              <span className="validation-icon"><Gauge aria-hidden="true" /></span>
-              <span><small>PrÃ¼faufwand</small><strong>{codingCase.difficulty === 'einfach' ? 'Einfacher Fall' : 'Schwieriger Fall'}</strong></span>
-              <span className={`status-pill status-${codingCase.difficulty === 'einfach' ? 'belegt' : 'wahrscheinlich'}`}>{codingCase.difficultySource === 'technisch' ? 'Technisch' : 'Manuell'}</span>
-            </div>
-            <p>{codingCase.difficultyReason}</p>
-            <div className="validation-evidence"><strong>{codingCase.difficulty === 'einfach' ? 'Kurz' : 'Tief'}</strong><span>empfohlene PrÃ¼ftiefe fÃ¼r den weiteren Workflow</span></div>
-            <label>Schwierigkeit Ã¤ndern
-              <select aria-label="Fallschwierigkeit manuell Ã¤ndern" value={codingCase.difficulty} onChange={(event) => setDifficulty(event.target.value as CodingCase['difficulty'])}>
-                <option value="einfach">Einfach</option>
-                <option value="schwierig">Schwierig</option>
-              </select>
-            </label>
-          </article>
-
-          <article className="validation-result dkr-result">
-            <div className="validation-result-head">
-              <span className="validation-icon"><BookOpenCheck aria-hidden="true" /></span>
-              <span><small>RegelprÃ¼fung {codingCase.year}</small><strong>{codingCase.dkrMatches.filter((rule) => rule.status === 'spezifisch').length} spezifische DKR erkannt</strong></span>
-              <span className="status-pill status-belegt">Eingeblendet</span>
-            </div>
-            <p>Passende Regeln werden vor der Hauptdiagnose- und OPS-Entscheidung gezeigt.</p>
-            <div className="dkr-list">
-              {codingCase.dkrMatches.map((rule) => (
-                <details key={rule.id} open={rule.status === 'spezifisch'}>
-                  <summary><span>{rule.title}</span><span className={`status-pill status-${rule.status === 'spezifisch' ? 'wahrscheinlich' : 'ungeklÃ¤rt'}`}>{rule.status === 'spezifisch' ? 'Spezifisch' : 'Allgemein'}</span></summary>
-                  <p>{rule.relevance}</p>
-                </details>
-              ))}
-            </div>
-            <small className="demo-rule-note">Illustrative DKR-Demohinweise. Fachinhalt und Jahresversion mÃ¼ssen im echten Regelpaket validiert werden.</small>
-          </article>
-        </div>
-      </section>
-
-      <div className="cockpit-grid guided-cockpit-grid">
-        <div className="cockpit-main">
-          <section className="hypothesis-panel guided-step" aria-labelledby="hypothesis-title" hidden={activeStep !== 2}>
-            <div className="section-title-row">
-              <div><div className="page-kicker">Aktuelle Arbeitshypothese</div><h2 id="hypothesis-title">{currentRun.drg}</h2></div>
-              <span className="status-pill status-wahrscheinlich">Wahrscheinlich</span>
-            </div>
-            <p><strong>Hauptdiagnose:</strong> {codingCase.currentMainDiagnosis}</p>
-            <p><strong>FÃ¼hrender Pfad:</strong> {codingCase.scenario === 'pulmo-onko' ? 'Pulmologische Diagnostik â†’ onkologische Therapie' : 'Konservative pneumologische Behandlung'}</p>
-            <div className="code-row">{codingCase.currentProcedures.map((procedure) => <code key={procedure}>{procedure}</code>)}</div>
-            <div className="grouper-note"><Sparkles aria-hidden="true" /><span>{currentRun.reason} PCCL {currentRun.pccL}.{currentRun.extras.map((extra) => ` ${extra}`)}</span></div>
-            {firstOpenDecision?.id === 'decision-main' && <button className="button primary" type="button" onClick={() => { setActiveDecision(firstOpenDecision.id); setActiveStep(3) }}>Hauptdiagnose belegen <ArrowRight aria-hidden="true" /></button>}
-          </section>
-
-          <section className="guided-step" aria-labelledby="checks-title" hidden={activeStep !== 3}>
-            <div className="section-title-row">
-              <div><div className="page-kicker">NÃ¤chster sinnvoller PrÃ¼fpunkt</div><h2 id="checks-title">Offene Entscheidungen</h2></div>
-              <span>{orderedDecisions.filter((item) => !['belegt', 'ausgeschlossen'].includes(item.status)).length} offen</span>
-            </div>
-            <div className="decision-list">
-              {orderedDecisions.filter((decision) => !['belegt', 'ausgeschlossen'].includes(decision.status)).map((decision) => {
-                const selected = activeDecision === decision.id
-                const route = getCollaborationRoute(decision)
-                const decisionEntries = getDecisionCodingEntries(codingCase.codingEntries, decision.id, decision.title)
-                const consultation = codingCase.consultations.find((item) => item.decisionId === decision.id)
-                const wikiStarted = codingCase.wikiThreads.some((thread) => thread.decisionId === decision.id)
-                return (
-                  <article className={`decision-item ${selected ? 'selected' : ''}`} key={decision.id}>
-                    <button className="decision-summary" type="button" aria-expanded={selected} onClick={() => setActiveDecision(selected ? undefined : decision.id)}>
-                      <span className={`impact-marker impact-${decision.impact}`}><span className="sr-only">Auswirkung {decision.impact}</span></span>
-                      <span className="decision-copy">
-                        <span className="decision-meta"><span className={`status-pill status-${decision.status}`}>{statusLabels[decision.status]}</span>{decision.required && <span>PflichtprÃ¼fung</span>}<span>Gruppierung {decision.groupingRelevance}</span><span>Auswirkung {decision.impact}</span><span>Bewertet Iteration {decision.assessedIteration ?? 1}</span></span>
-                        <strong>{decision.title}</strong>
-                        <small>{decision.effect}</small>
-                      </span>
-                      <ChevronDown aria-hidden="true" />
-                    </button>
-                    {selected && (
-                      <div className="decision-details">
-                        <p>{decision.description}</p>
-                        <div className="requested-doc"><FileUp aria-hidden="true" /><span><strong>BenÃ¶tigt:</strong> {decision.requestedDocument}</span></div>
-                        {decision.resolution && <div className="resolution"><Check aria-hidden="true" />{decision.resolution}</div>}
-                        <DecisionCodingWorkspace
-                          decision={decision}
-                          entries={decisionEntries}
-                          route={route}
-                          running={runningDecision === decision.id}
-                          wikiStarted={wikiStarted}
-                          consultationStatus={consultation?.status}
-                          onKnowledgeChange={(knowledge) => setDecisionKnowledge(decision.id, knowledge)}
-                          onManualCoding={() => setDirectCodingDecisionId(decision.id)}
-                          onValidatePrecode={() => void completeCodingDecision(decision.id, true)}
-                          onWiki={() => setCollaboration({ mode: 'wiki', decisionId: decision.id })}
-                          onConsult={() => setCollaboration({ mode: 'consult', decisionId: decision.id })}
-                          onEvidenceUpload={(files) => handleEvidenceUpload(decision.id, files)}
-                          onComplete={() => void completeCodingDecision(decision.id)}
-                          onExclude={() => void resolveDecision(decision.id, 'ausgeschlossen')}
-                        />
-                      </div>
-                    )}
-                  </article>
-                )
-              })}
-            </div>
-            {orderedDecisions.some((decision) => ['belegt', 'ausgeschlossen'].includes(decision.status)) && <details className="resolved-decision-summary"><summary>{orderedDecisions.filter((decision) => ['belegt', 'ausgeschlossen'].includes(decision.status)).length} erledigte Entscheidungen</summary><ul>{orderedDecisions.filter((decision) => ['belegt', 'ausgeschlossen'].includes(decision.status)).map((decision) => <li key={decision.id}><Check aria-hidden="true" /><span><strong>{decision.title}</strong><small>{decision.resolution ?? statusLabels[decision.status]}</small></span></li>)}</ul></details>}
-          </section>
-
-          <section className="entitlement-section guided-step" aria-labelledby="entitlement-title" hidden={activeStep !== 4}>
-            <div className="section-title-row"><div><div className="page-kicker">Gruppierung und KIS-Ãœbergabe</div><h2 id="entitlement-title">DRG und Entgelte</h2></div></div>
-            <button className="coding-transfer-entry" type="button" onClick={() => setCodingTransferOpen(true)}>
-              <span><FileCode2 aria-hidden="true" /></span>
-              <span><small>VollstÃ¤ndige Kodierung</small><strong>{activeCodingEntries.length} aktiv Â· {codingChanges.filter((entry) => entry.change === 'added').length} ergÃ¤nzt Â· {codingChanges.filter((entry) => entry.change === 'changed').length} geÃ¤ndert Â· {codingChanges.filter((entry) => entry.change === 'deleted').length} gelÃ¶scht</strong><span>Mit Quelle, Iteration und Ã„nderung gegenÃ¼ber der Vorkodierung</span></span>
-              <span>FÃ¼r KIS Ã¶ffnen <ArrowRight aria-hidden="true" /></span>
-            </button>
-            <div className="check-grid">
-              <CheckRow label="DRG" detail={`${currentRun.drg}, Basis ${currentRun.baseDrg}`} status="geprÃ¼ft" />
-              <CheckRow label="Zusatzentgelte" detail={currentRun.extras[0] ?? 'Therapienachweis noch offen'} status={currentRun.extras.length ? 'geprÃ¼ft' : 'offen'} />
-              <CheckRow label="NUB" detail={`${profile?.nubs.length ?? 0} Vereinbarungen am Standort`} status="geprÃ¼ft" />
-              <CheckRow label="Komplexbehandlungen" detail={`${profile?.structures.length ?? 0} mÃ¶gliche Strukturmerkmale`} status={openAlternatives.length ? 'offen' : 'geprÃ¼ft'} />
-              <CheckRow label="Altersregeln" detail={`Alter bei Aufnahme: ${codingCase.age}`} status="geprÃ¼ft" />
-              <CheckRow label="Hybrid-DRG" detail="Demo-Abgrenzung geprÃ¼ft" status="geprÃ¼ft" />
-            </div>
-            <section className="technical-values" aria-labelledby="technical-values-title">
-              <div className="section-title-row"><div><div className="page-kicker">Strukturierte Grouper-Eingaben</div><h3 id="technical-values-title">Technische Fallparameter</h3></div><span>{unresolvedTechnical.length} zu bestÃ¤tigen</span></div>
-              {codingCase.technicalValues.length > 0 ? codingCase.technicalValues.map((value) => <TechnicalValueRow key={value.id} value={value} running={runningDecision === value.id} onResolve={(status, aggregateValue) => void resolveTechnicalValue(value.id, status, aggregateValue)} />) : <div className="technical-empty"><Check aria-hidden="true" /> Keine zusÃ¤tzlichen technischen Werte importiert.</div>}
-            </section>
-            <button className="mbeg-check" type="button" onClick={() => setMbegOpen(true)}>
-              <span className={`check-icon ${codingCase.medicalJustification.reviewed ? 'done' : ''}`}><ShieldCheck aria-hidden="true" /></span>
-              <span><small>Optionaler Parallelpfad</small><strong>Medizinische BegrÃ¼ndung vollstationÃ¤r</strong><span>{codingCase.medicalJustification.reviewed ? 'Fachlich geprÃ¼ft' : codingCase.medicalJustification.status === 'entwurf-belegbar' ? 'Entwurf belegbar' : 'Fachliche PrÃ¼fung nÃ¶tig'}</span></span>
-              <ArrowRight aria-hidden="true" />
-            </button>
-          </section>
-        </div>
-
-      </div>
-
-      {activeStep < 5 && <div className="guided-step-footer"><button className="button secondary" type="button" disabled={activeStep === 1} onClick={() => setActiveStep((step) => Math.max(1, step - 1))}>ZurÃ¼ck</button><span>Schritt {activeStep} von 5</span><button className="button primary" type="button" onClick={() => setActiveStep((step) => Math.min(5, step + 1))}>Weiter <ArrowRight aria-hidden="true" /></button></div>}
-
-      <div className="guided-step completion-step" hidden={activeStep !== 5}>
-      <section className="completion-bar" aria-label="Fallabschluss">
-        <div>
-          {openRequired.length > 0 || blockingTechnical.length > 0 ? <LockKeyhole aria-hidden="true" /> : <Check aria-hidden="true" />}
-          <span><strong>{openRequired.length > 0 || blockingTechnical.length > 0 ? 'Abschluss noch gesperrt' : 'PflichtprÃ¼fungen abgeschlossen'}</strong><small>{openRequired.length > 0 || blockingTechnical.length > 0 ? `${openRequired.length} Pflichtentscheidungen und ${blockingTechnical.length} technische Grouper-Werte sind offen.` : `${openAlternatives.length} unkritische Restunsicherheiten werden dokumentiert.`}</small></span>
-        </div>
-        <button className="button primary" type="button" disabled={openRequired.length > 0 || blockingTechnical.length > 0} onClick={finalize}>Abschlussvorschlag <ArrowRight aria-hidden="true" /></button>
-      </section>
-
-      {finalOpen && (
-        <section className="final-proposal" aria-labelledby="final-title">
-          <div className="section-title-row"><div><div className="page-kicker">Belegter Vorschlag</div><h2 id="final-title">Fallabschluss</h2></div><span className="status-pill status-belegt">Abgeschlossen</span></div>
-          <div className="final-grid">
-            <div><span>Hauptdiagnose</span><strong>{codingCase.currentMainDiagnosis}</strong></div>
-            <div><span>DRG</span><strong>{currentRun.drg}</strong></div>
-            <div><span>OPS</span><strong>{codingCase.currentProcedures.join(' Â· ')}</strong></div>
-            <div><span>Entgelte</span><strong>{currentRun.extras.join(', ') || 'Keine zusÃ¤tzlichen DemovorschlÃ¤ge'}</strong></div>
-          </div>
-          <button className="button secondary" type="button" onClick={() => setCodingTransferOpen(true)}><FileCode2 aria-hidden="true" /> VollstÃ¤ndige Kodierung fÃ¼r KIS Ã¶ffnen</button>
-          {openAlternatives.length > 0 && <div className="inline-note"><Info aria-hidden="true" /><span>Dokumentierte Restunsicherheiten: {openAlternatives.map((item) => item.title).join('; ')}.</span></div>}
-          <details className="final-mbeg">
-            <summary><span><ShieldCheck aria-hidden="true" /><span><strong>Medizinische BegrÃ¼ndung vollstationÃ¤r</strong><small>{codingCase.medicalJustification.reviewed ? 'Fachlich geprÃ¼ft und optional weiterleitbar' : 'Optional anzeigen und fachlich prÃ¼fen'}</small></span></span><ChevronDown aria-hidden="true" /></summary>
-            <div><p>{codingCase.medicalJustification.draft}</p><button className="button secondary" type="button" onClick={() => setMbegOpen(true)}>BegrÃ¼ndung und Belege Ã¶ffnen <ArrowRight aria-hidden="true" /></button></div>
-          </details>
-          <p className="demo-disclaimer">Dieser Vorschlag nutzt illustrative Demodaten und ist nicht zur Abrechnung bestimmt.</p>
-        </section>
-      )}
-      </div>
-      {historyOpen && (
-        <div className="drawer-backdrop" role="presentation" onMouseDown={() => setHistoryOpen(false)}>
-          <aside className="collaboration-drawer history-drawer" role="dialog" aria-modal="true" aria-labelledby="history-drawer-title" onMouseDown={(event) => event.stopPropagation()}>
-            <div className="drawer-header"><div><div className="page-kicker">Nicht Ã¼berschrieben Â· {codingCase.caseNumber}</div><h2 id="history-drawer-title">Grouper-Iterationen</h2></div><button className="icon-button" type="button" aria-label="SchlieÃŸen" onClick={() => setHistoryOpen(false)}><X aria-hidden="true" /></button></div>
-            <div className="loop-explainer" aria-label="Iterative Arbeitsweise"><span>Hypothese</span><ArrowRight aria-hidden="true" /><span>Groupen</span><ArrowRight aria-hidden="true" /><span>Belegen</span><RotateCw aria-hidden="true" /></div>
-            <ol className="iteration-list">
-              {codingCase.grouperRuns.slice().reverse().map((run, index) => <li key={run.id} className={index === 0 ? 'current' : ''}><span className="iteration-node">{run.iteration}</span><div><strong>{run.drg}</strong><small>{new Date(run.timestamp).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</small><p>{run.reason}</p>{run.changed && <span className="mini-change">Pfad geÃ¤ndert</span>}</div></li>)}
-            </ol>
-          </aside>
-        </div>
-      )}
-      {codingEditorDocumentId && (() => {
-        const document = codingCase.documentMap.find((item) => item.id === codingEditorDocumentId)
-        return document ? <CodingEntryDrawer document={document} codingCase={codingCase} entries={codingCase.codingEntries} running={runningDecision === 'coding-entry'} onClose={() => setCodingEditorDocumentId(undefined)} onSave={saveCodingEntry} /> : null
-      })()}
-      {directCodingDecisionId && (() => {
-        const decision = codingCase.decisions.find((item) => item.id === directCodingDecisionId)
-        return decision ? <DirectCodingDrawer codingCase={codingCase} decision={decision} running={runningDecision === 'direct-coding'} onClose={() => setDirectCodingDecisionId(undefined)} onSave={saveDirectCoding} /> : null
-      })()}
-      {codingTransferOpen && <CodingTransferDrawer codingCase={codingCase} onClose={() => setCodingTransferOpen(false)} />}
-      {collaboration && (() => {
-        const decision = codingCase.decisions.find((item) => item.id === collaboration.decisionId)
-        return decision ? (
-          <CollaborationDrawer
-            mode={collaboration.mode}
-            codingCase={codingCase}
-            decision={decision}
-            onClose={() => setCollaboration(undefined)}
-            onCreateConsultation={(input) => createConsultation(decision.id, input)}
-            onCompleteConsultation={(consultationId, result, finding) => void completeConsultation(consultationId, result, finding)}
-            onSendWikiMessage={(text) => sendWikiMessage(decision.id, text)}
-            onOpenCoding={() => { setCollaboration(undefined); setDirectCodingDecisionId(decision.id) }}
-          />
-        ) : null
-      })()}
-      {mbegOpen && <MedicalJustificationDrawer codingCase={codingCase} kisGuides={profile?.kisGuides ?? []} onClose={() => setMbegOpen(false)} onReview={reviewMbeg} />}
-    </div>
-  )
-}
-
-function getDecisionCodingEntries(entries: CodingEntry[], decisionId: string, decisionTitle?: string) {
-  const contextual = entries.filter((entry) => entry.source.includes(decisionTitle ?? '') && Boolean(decisionTitle))
-  const matches = entries.filter((entry) => {
-    if (decisionId === 'decision-main') return entry.type === 'HD'
-    if (decisionId === 'decision-therapy') return entry.type === 'OPS' && /^8-5(4|5)/i.test(entry.code)
-    if (decisionId === 'decision-palliative') return entry.type === 'OPS' && /^8-98/i.test(entry.code)
-    if (decisionId === 'decision-pneumonia') return entry.type !== 'OPS' && /^J1[2-8]/i.test(entry.code)
-    return false
-  })
-  return [...new Map([...contextual, ...matches].map((entry) => [entry.id, entry])).values()]
-}
-
-function getCollaborationRoute(decision: CaseDecision): { kind: 'self' | 'wiki' | 'consult'; title: string; reason: string } {
-  if (decision.knowledge === 'fremd') {
-    return { kind: 'consult', title: 'Menschliches Kodierkonsil', reason: 'Ohne Grundkenntnisse kann bereits die Arbeitshypothese falsch sein.' }
-  }
-  if (decision.status === 'widersprÃ¼chlich' || (decision.groupingRelevance === 'relevant' && decision.knowledge !== 'vertraut')) {
-    return { kind: 'consult', title: 'Menschliches Kodierkonsil', reason: 'Die offene Frage ist gruppierungsrelevant und fachlich nicht sicher.' }
-  }
-  if (decision.groupingRelevance === 'keine' || decision.groupingRelevance === 'mÃ¶glich') {
-    return { kind: 'wiki', title: 'Wiki-Chat zur Einordnung', reason: 'Grundwissen reicht aus; der Chat liefert Hintergrund, aber keine Fallfreigabe.' }
-  }
-  return { kind: 'self', title: 'GefÃ¼hrte EigenprÃ¼fung', reason: 'Der Sachverhalt ist bekannt und kann mit Dokumenten und Regeln sicher validiert werden.' }
-}
-
-function CheckRow({ label, detail, status }: { label: string; detail: string; status: 'offen' | 'geprÃ¼ft' }) {
-  return (
-    <div className="check-row">
-      <span className={status === 'geprÃ¼ft' ? 'check-icon done' : 'check-icon'}>{status === 'geprÃ¼ft' ? <Check aria-hidden="true" /> : <CircleDot aria-hidden="true" />}</span>
-      <span><strong>{label}</strong><small>{detail}</small></span>
-      <span className={`status-pill status-${status === 'geprÃ¼ft' ? 'belegt' : 'ungeklÃ¤rt'}`}>{status === 'geprÃ¼ft' ? 'GeprÃ¼ft' : 'Offen'}</span>
-    </div>
-  )
-}
-
-function TechnicalValueRow({ value, running, onResolve }: { value: TechnicalCaseValue; running: boolean; onResolve: (status: TechnicalCaseValue['status'], aggregateValue?: number) => void }) {
-  const [editing, setEditing] = useState(false)
-  const [correctedValue, setCorrectedValue] = useState(value.aggregateValue ?? 0)
-  const resolved = value.status === 'bestÃ¤tigt' || value.status === 'korrigiert'
-  return (
-    <article className="technical-value-row">
-      <div className="technical-value-main">
-        <span className={`technical-value-icon ${resolved ? 'done' : ''}`}><ShieldCheck aria-hidden="true" /></span>
-        <span><small>{value.source}</small><strong>{value.label}</strong><span>{value.code && <code>{value.code}</code>}{value.aggregateValue !== undefined && <b>{value.aggregateValue} {value.unit}</b>}</span></span>
-        <span className={`status-pill status-${resolved ? 'belegt' : value.status === 'widersprÃ¼chlich' ? 'widersprÃ¼chlich' : 'wahrscheinlich'}`}>{value.status}</span>
-      </div>
-      {value.intervals.length > 0 && <div className="technical-intervals">{value.intervals.map((interval, index) => <span key={`${interval.start}-${index}`}>{formatTechnicalTime(interval.start)}{interval.end ? `â€“${formatTechnicalTime(interval.end)}` : ''}</span>)}</div>}
-      <p>{value.note}</p>
-      {!value.documentRequired && <div className="no-document-needed"><Check aria-hidden="true" /> Kein Dokumentenupload nÃ¶tig. Herkunft und NutzerbestÃ¤tigung bleiben gespeichert.</div>}
-      {!resolved && !editing && <div className="technical-actions"><button className="button primary" type="button" disabled={running} onClick={() => onResolve('bestÃ¤tigt')}>{running ? <RotateCw className="spin" aria-hidden="true" /> : <Check aria-hidden="true" />} Wert Ã¼bernehmen</button><button className="button secondary" type="button" onClick={() => setEditing(true)}>Wert korrigieren</button><button className="button secondary" type="button" onClick={() => onResolve('unklar')}>Unklar markieren</button></div>}
-      {editing && <div className="technical-correction"><label>Korrigierter Wert<div><input type="number" min="0" value={correctedValue} onChange={(event) => setCorrectedValue(Number(event.target.value))} /><span>{value.unit}</span></div></label><div><button className="button secondary" type="button" onClick={() => setEditing(false)}>Abbrechen</button><button className="button primary" type="button" onClick={() => onResolve('korrigiert', correctedValue)}>Korrektur Ã¼bernehmen</button></div></div>}
-    </article>
-  )
-}
-
-function formatTechnicalTime(value: string) {
-  return new Date(value).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
-}
+              description: entry.originalDóž{¶‰žËkºwµçI•¹Ñ¥Ñ±•µ•¹ÐµÑ¥Ñ±”ˆùIÕ¹¹Ñ•±Ñ”ð½ Èøð½‘¥Øøð½‘¥Øø4(€€€€€€€€€€€€ñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰½‘¥¹œµÑÉ…¹Í™•Èµ•¹ÑÉäˆÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÍ•Ñ½‘¥¹QÉ…¹Í™•É=Á•¸¡ÑÉÕ”¥ôø4(€€€€€€€€€€€€€€ñÍÁ…¸øñ¥±•½‘”È…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼øð½ÍÁ…¸ø4(€€€€€€€€€€€€€€ñÍÁ…¸øñÍµ…±°ùY½±±ÍÓ‘¹‘¥”-½‘¥•ÉÕ¹œð½Íµ…±°øñÍÑÉ½¹œùí…Ñ¥Ù•½‘¥¹¹ÑÉ¥•Ì¹±•¹Ñ¡ô…­Ñ¥Øƒ
+Üí½‘¥¹¡…¹•Ì¹™¥±Ñ•È ¡•¹ÑÉä¤€ôø•¹ÑÉä¹¡…¹”€ôôô€…‘‘•œ¤¹±•¹Ñ¡ô•ÉŸ‘¹éÐƒ
+Üí½‘¥¹¡…¹•Ì¹™¥±Ñ•È ¡•¹ÑÉä¤€ôø•¹ÑÉä¹¡…¹”€ôôô€¡…¹•œ¤¹±•¹Ñ¡ô—‘¹‘•ÉÐƒ
+Üí½‘¥¹¡…¹•Ì¹™¥±Ñ•È ¡•¹ÑÉä¤€ôø•¹ÑÉä¹¡…¹”€ôôô€‘•±•Ñ•œ¤¹±•¹Ñ¡ô•³ÙÍ¡Ðð½ÍÑÉ½¹œøñÍÁ…¸ù5¥ÐEÕ•±±”°%Ñ•É…Ñ¥½¸Õ¹ƒ¹‘•ÉÕ¹œ••»ñ‰•È‘•ÈY½É­½‘¥•ÉÕ¹œð½ÍÁ…¸øð½ÍÁ…¸ø4(€€€€€€€€€€€€€€ñÍÁ…¸ùñÈ-%LƒÙ™™¹•¸€ñÉÉ½ÝI¥¡Ð…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼øð½ÍÁ…¸ø4(€€€€€€€€€€€€ð½‰ÕÑÑ½¸ø4(€€€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰¡•¬µÉ¥ˆø4(€€€€€€€€€€€€€€ñ¡•­I½Ü±…‰•°ô‰Iˆ‘•Ñ…¥°õí€‘íÕÉÉ•¹ÑIÕ¸¹‘Éô°	…Í¥Ì€‘íÕÉÉ•¹ÑIÕ¸¹‰…Í•ÉõôÍÑ…ÑÕÌô‰•ÁËñ™Ðˆ€¼ø4(€€€€€€€€€€€€€€ñ¡•­I½Ü±…‰•°ô‰iÕÍ…Ñé•¹Ñ•±Ñ”ˆ‘•Ñ…¥°õíÕÉÉ•¹ÑIÕ¸¹•áÑÉ…ÍlÁt€üü€Q¡•É…Á¥•¹…¡Ý•¥Ì¹½ ½™™•¸ôÍÑ…ÑÕÌõíÕÉÉ•¹ÑIÕ¸¹•áÑÉ…Ì¹±•¹Ñ €ü€•ÁËñ™Ðœ€è€½™™•¸ô€¼ø4(€€€€€€€€€€€€€€ñ¡•­I½Ü±…‰•°ô‰9Uˆ‘•Ñ…¥°õí€‘íÁÉ½™¥±”ü¹¹Õ‰Ì¹±•¹Ñ €üü€ÁôY•É•¥¹‰…ÉÕ¹•¸…´MÑ…¹‘½ÉÑôÍÑ…ÑÕÌô‰•ÁËñ™Ðˆ€¼ø4(€€€€€€€€€€€€€€ñ¡•­I½Ü±…‰•°ô‰-½µÁ±•á‰•¡…¹‘±Õ¹•¸ˆ‘•Ñ…¥°õí€‘íÁÉ½™¥±”ü¹ÍÑÉÕÑÕÉ•Ì¹±•¹Ñ €üü€Áô·Ù±¥¡”MÑÉÕ­ÑÕÉµ•É­µ…±•ôÍÑ…ÑÕÌõí½Á•¹±Ñ•É¹…Ñ¥Ù•Ì¹±•¹Ñ €ü€½™™•¸œ€è€•ÁËñ™Ðô€¼ø4(€€€€€€€€€€€€€€ñ¡•­I½Ü±…‰•°ô‰±Ñ•ÉÍÉ••±¸ˆ‘•Ñ…¥°õí±Ñ•È‰•¤Õ™¹…¡µ”è€‘í½‘¥¹…Í”¹…•õôÍÑ…ÑÕÌô‰•ÁËñ™Ðˆ€¼ø4(€€€€€€€€€€€€€€ñ¡•­I½Ü±…‰•°ô‰!å‰É¥µIˆ‘•Ñ…¥°ô‰•µ¼µ‰É•¹éÕ¹œ•ÁËñ™ÐˆÍÑ…ÑÕÌô‰•ÁËñ™Ðˆ€¼ø4(€€€€€€€€€€€€ð½‘¥Øø4(€€€€€€€€€€€€ñÍ•Ñ¥½¸±…ÍÍ9…µ”ô‰Ñ•¡¹¥…°µÙ…±Õ•Ìˆ…É¥„µ±…‰•±±•‘‰äô‰Ñ•¡¹¥…°µÙ…±Õ•ÌµÑ¥Ñ±”ˆø4(€€€€€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰Í•Ñ¥½¸µÑ¥Ñ±”µÉ½Üˆøñ‘¥Øøñ‘¥Ø±…ÍÍ9…µ”ô‰Á…”µ­¥­•ÈˆùMÑÉÕ­ÑÕÉ¥•ÉÑ”É½ÕÁ•Èµ¥¹…‰•¸ð½‘¥Øøñ Ì¥ô‰Ñ•¡¹¥…°µÙ…±Õ•ÌµÑ¥Ñ±”ˆùQ•¡¹¥Í¡”…±±Á…É…µ•Ñ•Èð½ Ìøð½‘¥ØøñÍÁ…¸ùíÕ¹É•Í½±Ù•‘Q•¡¹¥…°¹±•¹Ñ¡ôéÔ‰•ÍÓ‘Ñ¥•¸ð½ÍÁ…¸øð½‘¥Øø4(€€€€€€€€€€€€€í½‘¥¹…Í”¹Ñ•¡¹¥…±Y…±Õ•Ì¹±•¹Ñ €ø€À€ü½‘¥¹…Í”¹Ñ•¡¹¥…±Y…±Õ•Ì¹µ…À ¡Ù…±Õ”¤€ôø€ñQ•¡¹¥…±Y…±Õ•I½Ü­•äõíÙ…±Õ”¹¥‘ôÙ…±Õ”õíÙ…±Õ•ôÉÕ¹¹¥¹œõíÉÕ¹¹¥¹•¥Í¥½¸€ôôôÙ…±Õ”¹¥‘ô½¹I•Í½±Ù”õì¡ÍÑ…ÑÕÌ°…É•…Ñ•Y…±Õ”¤€ôøÙ½¥É•Í½±Ù•Q•¡¹¥…±Y…±Õ”¡Ù…±Õ”¹¥°ÍÑ…ÑÕÌ°…É•…Ñ•Y…±Õ”¥ô€¼ø¤€è€ñ‘¥Ø±…ÍÍ9…µ”ô‰Ñ•¡¹¥…°µ•µÁÑäˆøñ¡•¬…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼ø-•¥¹”éÕÏ‘Ñé±¥¡•¸Ñ•¡¹¥Í¡•¸]•ÉÑ”¥µÁ½ÉÑ¥•ÉÐ¸ð½‘¥Øùô4(€€€€€€€€€€€€ð½Í•Ñ¥½¸ø4(€€€€€€€€€€€€ñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰µ‰•œµ¡•¬ˆÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÍ•Ñ5‰•=Á•¸¡ÑÉÕ”¥ôø4(€€€€€€€€€€€€€€ñÍÁ…¸±…ÍÍ9…µ”õí¡•¬µ¥½¸€‘í½‘¥¹…Í”¹µ•‘¥…±)ÕÍÑ¥™¥…Ñ¥½¸¹É•Ù¥•Ý•€ü€‘½¹”œ€è€œõôøñM¡¥•±‘¡•¬…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼øð½ÍÁ…¸ø4(€€€€€€€€€€€€€€ñÍÁ…¸øñÍµ…±°ù=ÁÑ¥½¹…±•ÈA…É…±±•±Á™…ð½Íµ…±°øñÍÑÉ½¹œù5•‘¥é¥¹¥Í¡”	•Ëñ¹‘Õ¹œÙ½±±ÍÑ…Ñ¥½»‘Èð½ÍÑÉ½¹œøñÍÁ…¸ùí½‘¥¹…Í”¹µ•‘¥…±)ÕÍÑ¥™¥…Ñ¥½¸¹É•Ù¥•Ý•€ü€…¡±¥ •ÁËñ™Ðœ€è½‘¥¹…Í”¹µ•‘¥…±)ÕÍÑ¥™¥…Ñ¥½¸¹ÍÑ…ÑÕÌ€ôôô€•¹ÑÝÕÉ˜µ‰•±•‰…Èœ€ü€¹ÑÝÕÉ˜‰•±•‰…Èœ€è€…¡±¥¡”AËñ™Õ¹œ»ÙÑ¥œôð½ÍÁ…¸øð½ÍÁ…¸ø4(€€€€€€€€€€€€€€ñÉÉ½ÝI¥¡Ð…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼ø4(€€€€€€€€€€€€ð½‰ÕÑÑ½¸ø4(€€€€€€€€€€ð½Í•Ñ¥½¸ø4(€€€€€€€€ð½‘¥Øø4(4(€€€€€€ð½‘¥Øø4(4(€€€€€í…Ñ¥Ù•MÑ•À€ð€Ô€˜˜€ñ‘¥Ø±…ÍÍ9…µ”ô‰Õ¥‘•µÍÑ•Àµ™½½Ñ•Èˆøñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰‰ÕÑÑ½¸Í•½¹‘…ÉäˆÑåÁ”ô‰‰ÕÑÑ½¸ˆ‘¥Í…‰±•õí…Ñ¥Ù•MÑ•À€ôôô€Åô½¹±¥¬õì ¤€ôøÍ•ÑÑ¥Ù•MÑ•À ¡ÍÑ•À¤€ôø5…Ñ ¹µ…à Ä°ÍÑ•À€´€Ä¤¥ôùiÕËñ¬ð½‰ÕÑÑ½¸øñÍÁ…¸ùM¡É¥ÑÐí…Ñ¥Ù•MÑ•ÁôÙ½¸€Ôð½ÍÁ…¸øñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰‰ÕÑÑ½¸ÁÉ¥µ…ÉäˆÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÍ•ÑÑ¥Ù•MÑ•À ¡ÍÑ•À¤€ôø5…Ñ ¹µ¥¸ Ô°ÍÑ•À€¬€Ä¤¥ôù]•¥Ñ•È€ñÉÉ½ÝI¥¡Ð…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼øð½‰ÕÑÑ½¸øð½‘¥Øùô4(4(€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰Õ¥‘•µÍÑ•À½µÁ±•Ñ¥½¸µÍÑ•Àˆ¡¥‘‘•¸õí…Ñ¥Ù•MÑ•À€„ôô€Õôø4(€€€€€€ñÍ•Ñ¥½¸±…ÍÍ9…µ”ô‰½µÁ±•Ñ¥½¸µ‰…Èˆ…É¥„µ±…‰•°ô‰…±±…‰Í¡±ÕÍÌˆø4(€€€€€€€€ñ‘¥Øø4(€€€€€€€€€í½Á•¹I•ÅÕ¥É•¹±•¹Ñ €ø€Àñð‰±½­¥¹Q•¡¹¥…°¹±•¹Ñ €ø€À€ü€ñ1½­-•å¡½±”…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼ø€è€ñ¡•¬…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼ùô4(€€€€€€€€€€ñÍÁ…¸øñÍÑÉ½¹œùí½Á•¹I•ÅÕ¥É•¹±•¹Ñ €ø€Àñð‰±½­¥¹Q•¡¹¥…°¹±•¹Ñ €ø€À€ü€‰Í¡±ÕÍÌ¹½ •ÍÁ•ÉÉÐœ€è€A™±¥¡ÑÁËñ™Õ¹•¸…‰•Í¡±½ÍÍ•¸ôð½ÍÑÉ½¹œøñÍµ…±°ùí½Á•¹I•ÅÕ¥É•¹±•¹Ñ €ø€Àñð‰±½­¥¹Q•¡¹¥…°¹±•¹Ñ €ø€À€ü€‘í½Á•¹I•ÅÕ¥É•¹±•¹Ñ¡ôA™±¥¡Ñ•¹ÑÍ¡•¥‘Õ¹•¸Õ¹€‘í‰±½­¥¹Q•¡¹¥…°¹±•¹Ñ¡ôÑ•¡¹¥Í¡”É½ÕÁ•Èµ]•ÉÑ”Í¥¹½™™•¸¹€€è€‘í½Á•¹±Ñ•É¹…Ñ¥Ù•Ì¹±•¹Ñ¡ôÕ¹­É¥Ñ¥Í¡”I•ÍÑÕ¹Í¥¡•É¡•¥Ñ•¸Ý•É‘•¸‘½­Õµ•¹Ñ¥•ÉÐ¹ôð½Íµ…±°øð½ÍÁ…¸ø4(€€€€€€€€ð½‘¥Øø4(€€€€€€€€ñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰‰ÕÑÑ½¸ÁÉ¥µ…ÉäˆÑåÁ”ô‰‰ÕÑÑ½¸ˆ‘¥Í…‰±•õí½Á•¹I•ÅÕ¥É•¹±•¹Ñ €ø€Àñð‰±½­¥¹Q•¡¹¥…°¹±•¹Ñ €ø€Áô½¹±¥¬õí™¥¹…±¥é•ôù‰Í¡±ÕÍÍÙ½ÉÍ¡±…œ€ñÉÉ½ÝI¥¡Ð…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼øð½‰ÕÑÑ½¸ø4(€€€€€€ð½Í•Ñ¥½¸ø4(4(€€€€€í™¥¹…±=Á•¸€˜˜€ 4(€€€€€€€€ñÍ•Ñ¥½¸±…ÍÍ9…µ”ô‰™¥¹…°µÁÉ½Á½Í…°ˆ…É¥„µ±…‰•±±•‘‰äô‰™¥¹…°µÑ¥Ñ±”ˆø4(€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰Í•Ñ¥½¸µÑ¥Ñ±”µÉ½Üˆøñ‘¥Øøñ‘¥Ø±…ÍÍ9…µ”ô‰Á…”µ­¥­•Èˆù	•±•Ñ•ÈY½ÉÍ¡±…œð½‘¥Øøñ È¥ô‰™¥¹…°µÑ¥Ñ±”ˆù…±±…‰Í¡±ÕÍÌð½ Èøð½‘¥ØøñÍÁ…¸±…ÍÍ9…µ”ô‰ÍÑ…ÑÕÌµÁ¥±°ÍÑ…ÑÕÌµ‰•±•Ðˆù‰•Í¡±½ÍÍ•¸ð½ÍÁ…¸øð½‘¥Øø4(€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰™¥¹…°µÉ¥ˆø4(€€€€€€€€€€€€ñ‘¥ØøñÍÁ…¸ù!…ÕÁÑ‘¥…¹½Í”ð½ÍÁ…¸øñÍÑÉ½¹œùí½‘¥¹…Í”¹ÕÉÉ•¹Ñ5…¥¹¥…¹½Í¥Íôð½ÍÑÉ½¹œøð½‘¥Øø4(€€€€€€€€€€€€ñ‘¥ØøñÍÁ…¸ùIð½ÍÁ…¸øñÍÑÉ½¹œùíÕÉÉ•¹ÑIÕ¸¹‘Éôð½ÍÑÉ½¹œøð½‘¥Øø4(€€€€€€€€€€€€ñ‘¥ØøñÍÁ…¸ù=ALð½ÍÁ…¸øñÍÑÉ½¹œùí½‘¥¹…Í”¹ÕÉÉ•¹ÑAÉ½•‘ÕÉ•Ì¹©½¥¸ œƒ
+Ü€œ¥ôð½ÍÑÉ½¹œøð½‘¥Øø4(€€€€€€€€€€€€ñ‘¥ØøñÍÁ…¸ù¹Ñ•±Ñ”ð½ÍÁ…¸øñÍÑÉ½¹œùíÕÉÉ•¹ÑIÕ¸¹•áÑÉ…Ì¹©½¥¸ œ°€œ¤ñð€-•¥¹”éÕÏ‘Ñé±¥¡•¸•µ½Ù½ÉÍ¡³‘”ôð½ÍÑÉ½¹œøð½‘¥Øø4(€€€€€€€€€€ð½‘¥Øø4(€€€€€€€€€€ñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰‰ÕÑÑ½¸Í•½¹‘…ÉäˆÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÍ•Ñ½‘¥¹QÉ…¹Í™•É=Á•¸¡ÑÉÕ”¥ôøñ¥±•½‘”È…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼øY½±±ÍÓ‘¹‘¥”-½‘¥•ÉÕ¹œ›ñÈ-%LƒÙ™™¹•¸ð½‰ÕÑÑ½¸ø4(€€€€€€€€€í½Á•¹±Ñ•É¹…Ñ¥Ù•Ì¹±•¹Ñ €ø€À€˜˜€ñ‘¥Ø±…ÍÍ9…µ”ô‰¥¹±¥¹”µ¹½Ñ”ˆøñ%¹™¼…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼øñÍÁ…¸ù½­Õµ•¹Ñ¥•ÉÑ”I•ÍÑÕ¹Í¥¡•É¡•¥Ñ•¸èí½Á•¹±Ñ•É¹…Ñ¥Ù•Ì¹µ…À ¡¥Ñ•´¤€ôø¥Ñ•´¹Ñ¥Ñ±”¤¹©½¥¸ œì€œ¥ô¸ð½ÍÁ…¸øð½‘¥Øùô4(€€€€€€€€€€ñ‘•Ñ…¥±Ì±…ÍÍ9…µ”ô‰™¥¹…°µµ‰•œˆø4(€€€€€€€€€€€€ñÍÕµµ…ÉäøñÍÁ…¸øñM¡¥•±‘¡•¬…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼øñÍÁ…¸øñÍÑÉ½¹œù5•‘¥é¥¹¥Í¡”	•Ëñ¹‘Õ¹œÙ½±±ÍÑ…Ñ¥½»‘Èð½ÍÑÉ½¹œøñÍµ…±°ùí½‘¥¹…Í”¹µ•‘¥…±)ÕÍÑ¥™¥…Ñ¥½¸¹É•Ù¥•Ý•€ü€…¡±¥ •ÁËñ™ÐÕ¹½ÁÑ¥½¹…°Ý•¥Ñ•É±•¥Ñ‰…Èœ€è€=ÁÑ¥½¹…°…¹é•¥•¸Õ¹™…¡±¥ ÁËñ™•¸ôð½Íµ…±°øð½ÍÁ…¸øð½ÍÁ…¸øñ¡•ÙÉ½¹½Ý¸…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼øð½ÍÕµµ…Éäø4(€€€€€€€€€€€€ñ‘¥ØøñÀùí½‘¥¹…Í”¹µ•‘¥…±)ÕÍÑ¥™¥…Ñ¥½¸¹‘É…™Ñôð½Àøñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰‰ÕÑÑ½¸Í•½¹‘…ÉäˆÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÍ•Ñ5‰•=Á•¸¡ÑÉÕ”¥ôù	•Ëñ¹‘Õ¹œÕ¹	•±•”ƒÙ™™¹•¸€ñÉÉ½ÝI¥¡Ð…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼øð½‰ÕÑÑ½¸øð½‘¥Øø4(€€€€€€€€€€ð½‘•Ñ…¥±Ìø4(€€€€€€€€€€ñÀ±…ÍÍ9…µ”ô‰‘•µ¼µ‘¥Í±…¥µ•Èˆù¥•Í•ÈY½ÉÍ¡±…œ¹ÕÑéÐ¥±±ÕÍÑÉ…Ñ¥Ù”•µ½‘…Ñ•¸Õ¹¥ÍÐ¹¥¡ÐéÕÈ‰É•¡¹Õ¹œ‰•ÍÑ¥µµÐ¸ð½Àø4(€€€€€€€€ð½Í•Ñ¥½¸ø4(€€€€€€¥ô4(€€€€€€ð½‘¥Øø4(€€€€€í¡¥ÍÑ½Éå=Á•¸€˜˜€ 4(€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰‘É…Ý•Èµ‰…­‘É½ÀˆÉ½±”ô‰ÁÉ•Í•¹Ñ…Ñ¥½¸ˆ½¹5½ÕÍ•½Ý¸õì ¤€ôøÍ•Ñ!¥ÍÑ½Éå=Á•¸¡™…±Í”¥ôø4(€€€€€€€€€€ñ…Í¥‘”±…ÍÍ9…µ”ô‰½±±…‰½É…Ñ¥½¸µ‘É…Ý•È¡¥ÍÑ½Éäµ‘É…Ý•ÈˆÉ½±”ô‰‘¥…±½œˆ…É¥„µµ½‘…°ô‰ÑÉÕ”ˆ…É¥„µ±…‰•±±•‘‰äô‰¡¥ÍÑ½Éäµ‘É…Ý•ÈµÑ¥Ñ±”ˆ½¹5½ÕÍ•½Ý¸õì¡•Ù•¹Ð¤€ôø•Ù•¹Ð¹ÍÑ½ÁAÉ½Á……Ñ¥½¸ ¥ôø4(€€€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰‘É…Ý•Èµ¡•…‘•Èˆøñ‘¥Øøñ‘¥Ø±…ÍÍ9…µ”ô‰Á…”µ­¥­•Èˆù9¥¡Ðƒñ‰•ÉÍ¡É¥•‰•¸ƒ
+Üí½‘¥¹…Í”¹…Í•9Õµ‰•Éôð½‘¥Øøñ È¥ô‰¡¥ÍÑ½Éäµ‘É…Ý•ÈµÑ¥Ñ±”ˆùÉ½ÕÁ•Èµ%Ñ•É…Ñ¥½¹•¸ð½ Èøð½‘¥Øøñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰¥½¸µ‰ÕÑÑ½¸ˆÑåÁ”ô‰‰ÕÑÑ½¸ˆ…É¥„µ±…‰•°ô‰M¡±¥—}•¸ˆ½¹±¥¬õì ¤€ôøÍ•Ñ!¥ÍÑ½Éå=Á•¸¡™…±Í”¥ôøñ`…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼øð½‰ÕÑÑ½¸øð½‘¥Øø4(€€€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰±½½Àµ•áÁ±…¥¹•Èˆ…É¥„µ±…‰•°ô‰%Ñ•É…Ñ¥Ù”É‰•¥ÑÍÝ•¥Í”ˆøñÍÁ…¸ù!åÁ½Ñ¡•Í”ð½ÍÁ…¸øñÉÉ½ÝI¥¡Ð…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼øñÍÁ…¸ùÉ½ÕÁ•¸ð½ÍÁ…¸øñÉÉ½ÝI¥¡Ð…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼øñÍÁ…¸ù	•±••¸ð½ÍÁ…¸øñI½Ñ…Ñ•Ü…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼øð½‘¥Øø4(€€€€€€€€€€€€ñ½°±…ÍÍ9…µ”ô‰¥Ñ•É…Ñ¥½¸µ±¥ÍÐˆø4(€€€€€€€€€€€€€í½‘¥¹…Í”¹É½ÕÁ•ÉIÕ¹Ì¹Í±¥” ¤¹É•Ù•ÉÍ” ¤¹µ…À ¡ÉÕ¸°¥¹‘•à¤€ôø€ñ±¤­•äõíÉÕ¸¹¥‘ô±…ÍÍ9…µ”õí¥¹‘•à€ôôô€À€ü€ÕÉÉ•¹Ðœ€è€œôøñÍÁ…¸±…ÍÍ9…µ”ô‰¥Ñ•É…Ñ¥½¸µ¹½‘”ˆùíÉÕ¸¹¥Ñ•É…Ñ¥½¹ôð½ÍÁ…¸øñ‘¥ØøñÍÑÉ½¹œùíÉÕ¸¹‘Éôð½ÍÑÉ½¹œøñÍµ…±°ùí¹•Ü…Ñ”¡ÉÕ¸¹Ñ¥µ•ÍÑ…µÀ¤¹Ñ½1½…±•Q¥µ•MÑÉ¥¹œ ‘”µœ°ì¡½ÕÈè€œÈµ‘¥¥Ðœ°µ¥¹ÕÑ”è€œÈµ‘¥¥Ðœô¥ôð½Íµ…±°øñÀùíÉÕ¸¹É•…Í½¹ôð½ÀùíÉÕ¸¹¡…¹•€˜˜€ñÍÁ…¸±…ÍÍ9…µ”ô‰µ¥¹¤µ¡…¹”ˆùA™…—‘¹‘•ÉÐð½ÍÁ…¸ùôð½‘¥Øøð½±¤ø¥ô4(€€€€€€€€€€€€ð½½°ø4(€€€€€€€€€€ð½…Í¥‘”ø4(€€€€€€€€ð½‘¥Øø4(€€€€€€¥ô4(€€€€€í½‘¥¹‘¥Ñ½É½Õµ•¹Ñ%€˜˜€  ¤€ôøì4(€€€€€€€½¹ÍÐ‘½Õµ•¹Ð€ô½‘¥¹…Í”¹‘½Õµ•¹Ñ5…À¹™¥¹ ¡¥Ñ•´¤€ôø¥Ñ•´¹¥€ôôô½‘¥¹‘¥Ñ½É½Õµ•¹Ñ%¤4(€€€€€€€É•ÑÕÉ¸‘½Õµ•¹Ð€ü€ñ½‘¥¹¹ÑÉåÉ…Ý•È‘½Õµ•¹Ðõí‘½Õµ•¹Ñô½‘¥¹…Í”õí½‘¥¹…Í•ô•¹ÑÉ¥•Ìõí½‘¥¹…Í”¹½‘¥¹¹ÑÉ¥•ÍôÉÕ¹¹¥¹œõíÉÕ¹¹¥¹•¥Í¥½¸€ôôô€½‘¥¹œµ•¹ÑÉäô½¹±½Í”õì ¤€ôøÍ•Ñ½‘¥¹‘¥Ñ½É½Õµ•¹Ñ%¡Õ¹‘•™¥¹•¥ô½¹M…Ù”õíÍ…Ù•½‘¥¹¹ÑÉåô€¼ø€è¹Õ±°4(€€€€€ô¤ ¥ô4(€€€€€í‘¥É•Ñ½‘¥¹•¥Í¥½¹%€˜˜€  ¤€ôøì4(€€€€€€€½¹ÍÐ‘•¥Í¥½¸€ô½‘¥¹…Í”¹‘•¥Í¥½¹Ì¹™¥¹ ¡¥Ñ•´¤€ôø¥Ñ•´¹¥€ôôô‘¥É•Ñ½‘¥¹•¥Í¥½¹%¤4(€€€€€€€É•ÑÕÉ¸‘•¥Í¥½¸€ü€ñ¥É•Ñ½‘¥¹É…Ý•È½‘¥¹…Í”õí½‘¥¹…Í•ô‘•¥Í¥½¸õí‘•¥Í¥½¹ôÉÕ¹¹¥¹œõíÉÕ¹¹¥¹•¥Í¥½¸€ôôô€‘¥É•Ðµ½‘¥¹œô½¹±½Í”õì ¤€ôøÍ•Ñ¥É•Ñ½‘¥¹•¥Í¥½¹%¡Õ¹‘•™¥¹•¥ô½¹M…Ù”õíÍ…Ù•¥É•Ñ½‘¥¹ô€¼ø€è¹Õ±°4(€€€€€ô¤ ¥ô4(€€€€€í½‘¥¹QÉ…¹Í™•É=Á•¸€˜˜€ñ½‘¥¹QÉ…¹Í™•ÉÉ…Ý•È½‘¥¹…Í”õí½‘¥¹…Í•ô½¹±½Í”õì ¤€ôøÍ•Ñ½‘¥¹QÉ…¹Í™•É=Á•¸¡™…±Í”¥ô€¼ùô4(€€€€€í½±±…‰½É…Ñ¥½¸€˜˜€  ¤€ôøì4(€€€€€€€½¹ÍÐ‘•¥Í¥½¸€ô½‘¥¹…Í”¹‘•¥Í¥½¹Ì¹™¥¹ ¡¥Ñ•´¤€ôø¥Ñ•´¹¥€ôôô½±±…‰½É…Ñ¥½¸¹‘•¥Í¥½¹%¤4(€€€€€€€É•ÑÕÉ¸‘•¥Í¥½¸€ü€ 4(€€€€€€€€€€ñ½±±…‰½É…Ñ¥½¹É…Ý•È4(€€€€€€€€€€€µ½‘”õí½±±…‰½É…Ñ¥½¸¹µ½‘•ô4(€€€€€€€€€€€½‘¥¹…Í”õí½‘¥¹…Í•ô4(€€€€€€€€€€€‘•¥Í¥½¸õí‘•¥Í¥½¹ô4(€€€€€€€€€€€½¹±½Í”õì ¤€ôøÍ•Ñ½±±…‰½É…Ñ¥½¸¡Õ¹‘•™¥¹•¥ô4(€€€€€€€€€€€½¹É•…Ñ•½¹ÍÕ±Ñ…Ñ¥½¸õì¡¥¹ÁÕÐ¤€ôøÉ•…Ñ•½¹ÍÕ±Ñ…Ñ¥½¸¡‘•¥Í¥½¸¹¥°¥¹ÁÕÐ¥ô4(€€€€€€€€€€€½¹½µÁ±•Ñ•½¹ÍÕ±Ñ…Ñ¥½¸õì¡½¹ÍÕ±Ñ…Ñ¥½¹%°É•ÍÕ±Ð°™¥¹‘¥¹œ¤€ôøÙ½¥½µÁ±•Ñ•½¹ÍÕ±Ñ…Ñ¥½¸¡½¹ÍÕ±Ñ…Ñ¥½¹%°É•ÍÕ±Ð°™¥¹‘¥¹œ¥ô4(€€€€€€€€€€€½¹M•¹‘]¥­¥5•ÍÍ…”õì¡Ñ•áÐ¤€ôøÍ•¹‘]¥­¥5•ÍÍ…”¡‘•¥Í¥½¸¹¥°Ñ•áÐ¥ô4(€€€€€€€€€€€½¹=Á•¹½‘¥¹œõì ¤€ôøìÍ•Ñ½±±…‰½É…Ñ¥½¸¡Õ¹‘•™¥¹•¤ìÍ•Ñ¥É•Ñ½‘¥¹•¥Í¥½¹%¡‘•¥Í¥½¸¹¥¤õô4(€€€€€€€€€€¼ø4(€€€€€€€€¤€è¹Õ±°4(€€€€€ô¤ ¥ô4(€€€€€íµ‰•=Á•¸€˜˜€ñ5•‘¥…±)ÕÍÑ¥™¥…Ñ¥½¹É…Ý•È½‘¥¹…Í”õí½‘¥¹…Í•ô­¥ÍÕ¥‘•ÌõíÁÉ½™¥±”ü¹­¥ÍÕ¥‘•Ì€üümuô½¹±½Í”õì ¤€ôøÍ•Ñ5‰•=Á•¸¡™…±Í”¥ô½¹I•Ù¥•ÜõíÉ•Ù¥•Ý5‰•ô€¼ùô4(€€€€ð½‘¥Øø4(€€¤4)ô4(4)™Õ¹Ñ¥½¸•Ñ•¥Í¥½¹½‘¥¹¹ÑÉ¥•Ì¡•¹ÑÉ¥•Ìè½‘¥¹¹ÑÉåmt°‘•¥Í¥½¹%èÍÑÉ¥¹œ°‘•¥Í¥½¹Q¥Ñ±”üèÍÑÉ¥¹œ¤ì4(€½¹ÍÐ½¹Ñ•áÑÕ…°€ô•¹ÑÉ¥•Ì¹™¥±Ñ•È ¡•¹ÑÉä¤€ôø•¹ÑÉä¹Í½ÕÉ”¹¥¹±Õ‘•Ì¡‘•¥Í¥½¹Q¥Ñ±”€üü€œœ¤€˜˜	½½±•…¸¡‘•¥Í¥½¹Q¥Ñ±”¤¤4(€½¹ÍÐµ…Ñ¡•Ì€ô•¹ÑÉ¥•Ì¹™¥±Ñ•È ¡•¹ÑÉä¤€ôøì4(€€€¥˜€¡‘•¥Í¥½¹%€ôôô€‘•¥Í¥½¸µµ…¥¸œ¤É•ÑÕÉ¸•¹ÑÉä¹ÑåÁ”€ôôô€!œ4(€€€¥˜€¡‘•¥Í¥½¹%€ôôô€‘•¥Í¥½¸µÑ¡•É…Áäœ¤É•ÑÕÉ¸•¹ÑÉä¹ÑåÁ”€ôôô€=ALœ€˜˜€½xà´Ô ÑðÔ¤½¤¹Ñ•ÍÐ¡•¹ÑÉä¹½‘”¤4(€€€¥˜€¡‘•¥Í¥½¹%€ôôô€‘•¥Í¥½¸µÁ…±±¥…Ñ¥Ù”œ¤É•ÑÕÉ¸•¹ÑÉä¹ÑåÁ”€ôôô€=ALœ€˜˜€½xà´äà½¤¹Ñ•ÍÐ¡•¹ÑÉä¹½‘”¤4(€€€¥˜€¡‘•¥Í¥½¹%€ôôô€‘•¥Í¥½¸µÁ¹•Õµ½¹¥„œ¤É•ÑÕÉ¸•¹ÑÉä¹ÑåÁ”€„ôô€=ALœ€˜˜€½y(ÅlÈ´át½¤¹Ñ•ÍÐ¡•¹ÑÉä¹½‘”¤4(€€€É•ÑÕÉ¸™…±Í”4(€ô¤4(€É•ÑÕÉ¸l¸¸¹¹•Ü5…À¡l¸¸¹½¹Ñ•áÑÕ…°°€¸¸¹µ…Ñ¡•Ít¹µ…À ¡•¹ÑÉä¤€ôøm•¹ÑÉä¹¥°•¹ÑÉåt¤¤¹Ù…±Õ•Ì ¥t4)ô4(4)™Õ¹Ñ¥½¸•Ñ½±±…‰½É…Ñ¥½¹I½ÕÑ”¡‘•¥Í¥½¸è…Í••¥Í¥½¸¤èì­¥¹è€Í•±˜œð€Ý¥­¤œð€½¹ÍÕ±ÐœìÑ¥Ñ±”èÍÑÉ¥¹œìÉ•…Í½¸èÍÑÉ¥¹œôì4(€¥˜€¡‘•¥Í¥½¸¹­¹½Ý±•‘”€ôôô€™É•µœ¤ì4(€€€É•ÑÕÉ¸ì­¥¹è€½¹ÍÕ±Ðœ°Ñ¥Ñ±”è€5•¹Í¡±¥¡•Ì-½‘¥•É­½¹Í¥°œ°É•…Í½¸è€=¡¹”ÉÕ¹‘­•¹¹Ñ¹¥ÍÍ”­…¹¸‰•É•¥ÑÌ‘¥”É‰•¥ÑÍ¡åÁ½Ñ¡•Í”™…±Í Í•¥¸¸œô4(€ô4(€¥˜€¡‘•¥Í¥½¸¹ÍÑ…ÑÕÌ€ôôô€Ý¥‘•ÉÍÁËñ¡±¥ œñð€¡‘•¥Í¥½¸¹É½ÕÁ¥¹I•±•Ù…¹”€ôôô€É•±•Ù…¹Ðœ€˜˜‘•¥Í¥½¸¹­¹½Ý±•‘”€„ôô€Ù•ÉÑÉ…ÕÐœ¤¤ì4(€€€É•ÑÕÉ¸ì­¥¹è€½¹ÍÕ±Ðœ°Ñ¥Ñ±”è€5•¹Í¡±¥¡•Ì-½‘¥•É­½¹Í¥°œ°É•…Í½¸è€¥”½™™•¹”É…”¥ÍÐÉÕÁÁ¥•ÉÕ¹ÍÉ•±•Ù…¹ÐÕ¹™…¡±¥ ¹¥¡ÐÍ¥¡•È¸œô4(€ô4(€¥˜€¡‘•¥Í¥½¸¹É½ÕÁ¥¹I•±•Ù…¹”€ôôô€­•¥¹”œñð‘•¥Í¥½¸¹É½ÕÁ¥¹I•±•Ù…¹”€ôôô€·Ù±¥ œ¤ì4(€€€É•ÑÕÉ¸ì­¥¹è€Ý¥­¤œ°Ñ¥Ñ±”è€]¥­¤µ¡…ÐéÕÈ¥¹½É‘¹Õ¹œœ°É•…Í½¸è€ÉÕ¹‘Ý¥ÍÍ•¸É•¥¡Ð…ÕÌì‘•È¡…Ð±¥•™•ÉÐ!¥¹Ñ•ÉÉÕ¹°…‰•È­•¥¹”…±±™É•¥…‰”¸œô4(€ô4(€É•ÑÕÉ¸ì­¥¹è€Í•±˜œ°Ñ¥Ñ±”è€•›ñ¡ÉÑ”¥•¹ÁËñ™Õ¹œœ°É•…Í½¸è€•ÈM…¡Ù•É¡…±Ð¥ÍÐ‰•­…¹¹ÐÕ¹­…¹¸µ¥Ð½­Õµ•¹Ñ•¸Õ¹I••±¸Í¥¡•ÈÙ…±¥‘¥•ÉÐÝ•É‘•¸¸œô4)ô4(4)™Õ¹Ñ¥½¸¡•­I½Ü¡ì±…‰•°°‘•Ñ…¥°°ÍÑ…ÑÕÌôèì±…‰•°èÍÑÉ¥¹œì‘•Ñ…¥°èÍÑÉ¥¹œìÍÑ…ÑÕÌè€½™™•¸œð€•ÁËñ™Ðœô¤ì4(€É•ÑÕÉ¸€ 4(€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰¡•¬µÉ½Üˆø4(€€€€€€ñÍÁ…¸±…ÍÍ9…µ”õíÍÑ…ÑÕÌ€ôôô€•ÁËñ™Ðœ€ü€¡•¬µ¥½¸‘½¹”œ€è€¡•¬µ¥½¸ôùíÍÑ…ÑÕÌ€ôôô€•ÁËñ™Ðœ€ü€ñ¡•¬…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼ø€è€ñ¥É±•½Ð…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼ùôð½ÍÁ…¸ø4(€€€€€€ñÍÁ…¸øñÍÑÉ½¹œùí±…‰•±ôð½ÍÑÉ½¹œøñÍµ…±°ùí‘•Ñ…¥±ôð½Íµ…±°øð½ÍÁ…¸ø4(€€€€€€ñÍÁ…¸±…ÍÍ9…µ”õíÍÑ…ÑÕÌµÁ¥±°ÍÑ…ÑÕÌ´‘íÍÑ…ÑÕÌ€ôôô€•ÁËñ™Ðœ€ü€‰•±•Ðœ€è€Õ¹•­³‘ÉÐõôùíÍÑ…ÑÕÌ€ôôô€•ÁËñ™Ðœ€ü€•ÁËñ™Ðœ€è€=™™•¸ôð½ÍÁ…¸ø4(€€€€ð½‘¥Øø4(€€¤4)ô4(4)™Õ¹Ñ¥½¸Q•¡¹¥…±Y…±Õ•I½Ü¡ìÙ…±Õ”°ÉÕ¹¹¥¹œ°½¹I•Í½±Ù”ôèìÙ…±Õ”èQ•¡¹¥…±…Í•Y…±Õ”ìÉÕ¹¹¥¹œè‰½½±•…¸ì½¹I•Í½±Ù”è€¡ÍÑ…ÑÕÌèQ•¡¹¥…±…Í•Y…±Õ•lÍÑ…ÑÕÌt°…É•…Ñ•Y…±Õ”üè¹Õµ‰•È¤€ôøÙ½¥ô¤ì4(€½¹ÍÐm•‘¥Ñ¥¹œ°Í•Ñ‘¥Ñ¥¹t€ôÕÍ•MÑ…Ñ”¡™…±Í”¤4(€½¹ÍÐm½ÉÉ•Ñ•‘Y…±Õ”°Í•Ñ½ÉÉ•Ñ•‘Y…±Õ•t€ôÕÍ•MÑ…Ñ”¡Ù…±Õ”¹…É•…Ñ•Y…±Õ”€üü€À¤4(€½¹ÍÐÉ•Í½±Ù•€ôÙ…±Õ”¹ÍÑ…ÑÕÌ€ôôô€‰•ÍÓ‘Ñ¥ÐœñðÙ…±Õ”¹ÍÑ…ÑÕÌ€ôôô€­½ÉÉ¥¥•ÉÐœ4(€É•ÑÕÉ¸€ 4(€€€€ñ…ÉÑ¥±”±…ÍÍ9…µ”ô‰Ñ•¡¹¥…°µÙ…±Õ”µÉ½Üˆø4(€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰Ñ•¡¹¥…°µÙ…±Õ”µµ…¥¸ˆø4(€€€€€€€€ñÍÁ…¸±…ÍÍ9…µ”õíÑ•¡¹¥…°µÙ…±Õ”µ¥½¸€‘íÉ•Í½±Ù•€ü€‘½¹”œ€è€œõôøñM¡¥•±‘¡•¬…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼øð½ÍÁ…¸ø4(€€€€€€€€ñÍÁ…¸øñÍµ…±°ùíÙ…±Õ”¹Í½ÕÉ•ôð½Íµ…±°øñÍÑÉ½¹œùíÙ…±Õ”¹±…‰•±ôð½ÍÑÉ½¹œøñÍÁ…¸ùíÙ…±Õ”¹½‘”€˜˜€ñ½‘”ùíÙ…±Õ”¹½‘•ôð½½‘”ùõíÙ…±Õ”¹…É•…Ñ•Y…±Õ”€„ôôÕ¹‘•™¥¹•€˜˜€ñˆùíÙ…±Õ”¹…É•…Ñ•Y…±Õ•ôíÙ…±Õ”¹Õ¹¥Ñôð½ˆùôð½ÍÁ…¸øð½ÍÁ…¸ø4(€€€€€€€€ñÍÁ…¸±…ÍÍ9…µ”õíÍÑ…ÑÕÌµÁ¥±°ÍÑ…ÑÕÌ´‘íÉ•Í½±Ù•€ü€‰•±•Ðœ€èÙ…±Õ”¹ÍÑ…ÑÕÌ€ôôô€Ý¥‘•ÉÍÁËñ¡±¥ œ€ü€Ý¥‘•ÉÍÁËñ¡±¥ œ€è€Ý…¡ÉÍ¡•¥¹±¥ õôùíÙ…±Õ”¹ÍÑ…ÑÕÍôð½ÍÁ…¸ø4(€€€€€€ð½‘¥Øø4(€€€€€íÙ…±Õ”¹¥¹Ñ•ÉÙ…±Ì¹±•¹Ñ €ø€À€˜˜€ñ‘¥Ø±…ÍÍ9…µ”ô‰Ñ•¡¹¥…°µ¥¹Ñ•ÉÙ…±ÌˆùíÙ…±Õ”¹¥¹Ñ•ÉÙ…±Ì¹µ…À ¡¥¹Ñ•ÉÙ…°°¥¹‘•à¤€ôø€ñÍÁ…¸­•äõí€‘í¥¹Ñ•ÉÙ…°¹ÍÑ…ÉÑô´‘í¥¹‘•áõôùí™½Éµ…ÑQ•¡¹¥…±Q¥µ”¡¥¹Ñ•ÉÙ…°¹ÍÑ…ÉÐ¥õí¥¹Ñ•ÉÙ…°¹•¹€üƒŠL‘í™½Éµ…ÑQ•¡¹¥…±Q¥µ”¡¥¹Ñ•ÉÙ…°¹•¹¥õ€€è€œôð½ÍÁ…¸ø¥ôð½‘¥Øùô4(€€€€€€ñÀùíÙ…±Õ”¹¹½Ñ•ôð½Àø4(€€€€€ì…Ù…±Õ”¹‘½Õµ•¹ÑI•ÅÕ¥É•€˜˜€ñ‘¥Ø±…ÍÍ9…µ”ô‰¹¼µ‘½Õµ•¹Ðµ¹••‘•ˆøñ¡•¬…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼ø-•¥¸½­Õµ•¹Ñ•¹ÕÁ±½…»ÙÑ¥œ¸!•É­Õ¹™ÐÕ¹9ÕÑé•É‰•ÍÓ‘Ñ¥Õ¹œ‰±•¥‰•¸•ÍÁ•¥¡•ÉÐ¸ð½‘¥Øùô4(€€€€€ì…É•Í½±Ù•€˜˜€…•‘¥Ñ¥¹œ€˜˜€ñ‘¥Ø±…ÍÍ9…µ”ô‰Ñ•¡¹¥…°µ…Ñ¥½¹Ìˆøñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰‰ÕÑÑ½¸ÁÉ¥µ…ÉäˆÑåÁ”ô‰‰ÕÑÑ½¸ˆ‘¥Í…‰±•õíÉÕ¹¹¥¹ô½¹±¥¬õì ¤€ôø½¹I•Í½±Ù” ‰•ÍÓ‘Ñ¥Ðœ¥ôùíÉÕ¹¹¥¹œ€ü€ñI½Ñ…Ñ•Ü±…ÍÍ9…µ”ô‰ÍÁ¥¸ˆ…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼ø€è€ñ¡•¬…É¥„µ¡¥‘‘•¸ô‰ÑÉÕ”ˆ€¼ùô]•ÉÐƒñ‰•É¹•¡µ•¸ð½‰ÕÑÑ½¸øñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰‰ÕÑÑ½¸Í•½¹‘…ÉäˆÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÍ•Ñ‘¥Ñ¥¹œ¡ÑÉÕ”¥ôù]•ÉÐ­½ÉÉ¥¥•É•¸ð½‰ÕÑÑ½¸øñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰‰ÕÑÑ½¸Í•½¹‘…ÉäˆÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôø½¹I•Í½±Ù” Õ¹­±…Èœ¥ôùU¹­±…Èµ…É­¥•É•¸ð½‰ÕÑÑ½¸øð½‘¥Øùô4(€€€€€í•‘¥Ñ¥¹œ€˜˜€ñ‘¥Ø±…ÍÍ9…µ”ô‰Ñ•¡¹¥…°µ½ÉÉ•Ñ¥½¸ˆøñ±…‰•°ù-½ÉÉ¥¥•ÉÑ•È]•ÉÐñ‘¥Øøñ¥¹ÁÕÐÑåÁ”ô‰¹Õµ‰•Èˆµ¥¸ôˆÀˆÙ…±Õ”õí½ÉÉ•Ñ•‘Y…±Õ•ô½¹¡…¹”õì¡•Ù•¹Ð¤€ôøÍ•Ñ½ÉÉ•Ñ•‘Y…±Õ”¡9Õµ‰•È¡•Ù•¹Ð¹Ñ…É•Ð¹Ù…±Õ”¤¥ô€¼øñÍÁ…¸ùíÙ…±Õ”¹Õ¹¥Ñôð½ÍÁ…¸øð½‘¥Øøð½±…‰•°øñ‘¥Øøñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰‰ÕÑÑ½¸Í•½¹‘…ÉäˆÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÍ•Ñ‘¥Ñ¥¹œ¡™…±Í”¥ôù‰‰É•¡•¸ð½‰ÕÑÑ½¸øñ‰ÕÑÑ½¸±…ÍÍ9…µ”ô‰‰ÕÑÑ½¸ÁÉ¥µ…ÉäˆÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôø½¹I•Í½±Ù” ­½ÉÉ¥¥•ÉÐœ°½ÉÉ•Ñ•‘Y…±Õ”¥ôù-½ÉÉ•­ÑÕÈƒñ‰•É¹•¡µ•¸ð½‰ÕÑÑ½¸øð½‘¥Øøð½‘¥Øùô4(€€€€ð½…ÉÑ¥±”ø4(€€¤4)ô4(4)™Õ¹Ñ¥½¸™½Éµ…ÑQ•¡¹¥…±Q¥µ”¡Ù…±Õ”èÍÑÉ¥¹œ¤ì4(€É•ÑÕÉ¸¹•Ü…Ñ”¡Ù…±Õ”¤¹Ñ½1½…±•MÑÉ¥¹œ ‘”µœ°ì‘…äè€œÈµ‘¥¥Ðœ°µ½¹Ñ è€œÈµ‘¥¥Ðœ°¡½ÕÈè€œÈµ‘¥¥Ðœ°µ¥¹ÕÑ”è€œÈµ‘¥¥Ðœô¤4)ô4(

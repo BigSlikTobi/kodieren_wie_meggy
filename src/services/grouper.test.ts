@@ -23,6 +23,7 @@ describe('MockGrouperClient', () => {
 
     expect(result.iteration).toBe(2)
     expect(result.changed).toBe(true)
+    expect(result.lengthOfStay).toMatchObject({ catalogYear: 2026, meanDays: 14.3, lowerFirstDiscountDay: 4, upperFirstSurchargeDay: 29 })
     expect(codingCase.grouperRuns).toHaveLength(1)
     vi.useRealTimers()
   })

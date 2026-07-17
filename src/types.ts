@@ -156,6 +156,14 @@ export interface CaseDecision {
   resolution?: string
 }
 
+export interface DrgLengthOfStayProfile {
+  catalogYear: number
+  careSetting: 'Hauptabteilung'
+  meanDays: number
+  lowerFirstDiscountDay?: number
+  upperFirstSurchargeDay?: number
+}
+
 export interface GrouperRun {
   id: string
   iteration: number
@@ -166,12 +174,14 @@ export interface GrouperRun {
   reason: string
   changed: boolean
   extras: string[]
+  lengthOfStay: DrgLengthOfStayProfile
 }
 
 export type CodingEntryType = 'HD' | 'ND' | 'OPS'
 export type CodingChange = 'unchanged' | 'added' | 'changed' | 'deleted'
 export type CodingOrigin = 'vorkodierung' | 'manuell' | 'technisch' | 'tool-vorschlag'
 export type CodingReviewStatus = 'ungeprüft' | 'wahrscheinlich' | 'belegt' | 'widersprüchlich'
+export type CodingGroupingImpact = 'pfadbestimmend' | 'split-relevant' | 'potenziell' | 'ohne-änderung'
 
 export interface CodingEntry {
   id: string
@@ -193,6 +203,8 @@ export interface CodingEntry {
   quantity?: number
   department?: string
   assessedIteration: number
+  groupingImpact?: CodingGroupingImpact
+  groupingImpactReason?: string
 }
 
 export type TechnicalValueStatus = 'importiert' | 'bestätigt' | 'korrigiert' | 'unklar' | 'widersprüchlich'
