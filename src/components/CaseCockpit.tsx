@@ -1,12 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
+  ArrowLeft,
   ArrowRight,
   BookOpenCheck,
   Building2,
   Check,
   ChevronDown,
   CircleDot,
-  FileUp,
   FileCode2,
   Gauge,
   History,
@@ -22,7 +22,7 @@ import {
   X,
 } from 'lucide-react'
 import type { GrouperClient } from '../services/grouper'
-import type { AppData, CaseDecision, CodingCase, CodingConsultation, CodingEntry, EvidenceStatus, HospitalProfile, TechnicalCaseValue } from '../types'
+import type { AppData, CaseDecision, CodingCase, CodingConsultation, CodingEntry, HospitalProfile, TechnicalCaseValue } from '../types'
 import { CollaborationDrawer } from './CollaborationDrawer'
 import { CodingEntryDrawer, type CodingEntryInput } from './CodingEntryDrawer'
 import { CodingTransferDrawer } from './CodingTransferDrawer'
@@ -40,22 +40,13 @@ interface CaseCockpitProps {
   onNewCase: () => void
 }
 
-const statusLabels: Record<EvidenceStatus, string> = {
-  belegt: 'Belegt',
-  wahrscheinlich: 'Wahrscheinlich',
-  ungeklärt: 'Ungeklärt',
-  widersprüchlich: 'Widersprüchlich',
-  ausgeschlossen: 'Ausgeschlossen',
-  entscheidung: 'Entscheidung nötig',
-}
-
 export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange, onNewCase }: CaseCockpitProps) {
   const [activeDecision, setActiveDecision] = useState<string | undefined>(codingCase.decisions[0]?.id)
   const [runningDecision, setRunningDecision] = useState<string>()
   const [finalOpen, setFinalOpen] = useState(codingCase.status === 'abgeschlossen')
   const [collaboration, setCollaboration] = useState<{ mode: 'consult' | 'wiki'; decisionId: string }>()
   const [mbegOpen, setMbegOpen] = useState(false)
-  const [activeStep, setActiveStep] = useState(1)
+  const [activeStep, setActiveStep] = useState(0)
   const [documentMapOpen, setDocumentMapOpen] = useState(false)
   const [documentMapFocus, setDocumentMapFocus] = useState<{ eventId?: string; documentId?: string }>({})
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -63,23 +54,22 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
   const [codingTransferOpen, setCodingTransferOpen] = useState(false)
   const [directCodingDecisionId, setDirectCodingDecisionId] = useState<string>()
 
+  useEffect(() => {
+    window.scrollTo({ top: 0 })
+  }, [activeStep])
+
   const hospital = hospitals.find((item) => item.id === codingCase.hospitalId)
   const profile = hospital?.profiles.find((item) => item.siteId === codingCase.siteId && item.year === codingCase.year)
   const currentRun = codingCase.grouperRuns.at(-1)!
   const firstOpenDecision = codingCase.decisions.find((decision) => !['belegt', 'ausgeschlossen'].includes(decision.status))
   const openRequired = codingCase.decisions.filter((decision) => decision.required && decision.status !== 'belegt' && decision.status !== 'ausgeschlossen')
   const openAlternatives = codingCase.decisions.filter((decision) => !decision.required && !['belegt', 'ausgeschlossen'].includes(decision.status))
-  const evidenceCount = codingCase.decisions.filter((decision) => decision.status === 'belegt').length
-  const relevantDocumentGaps = codingCase.documentMap.filter((document) => document.kind !== 'vorkodierung' && (
-    document.priority === 'jetzt' || [document.outcomeDimensions.drg, document.outcomeDimensions.ops, document.outcomeDimensions.entgelte].includes('relevant')
-  ) && (document.availability === 'fehlend' || !['grob-geprüft', 'validiert'].includes(document.reviewLevel)))
   const unresolvedTechnical = codingCase.technicalValues.filter((value) => !['bestätigt', 'korrigiert'].includes(value.status))
   const blockingTechnical = unresolvedTechnical.filter((value) => value.groupingRelevant)
   const codingChanges = codingCase.codingEntries.filter((entry) => entry.change !== 'unchanged')
   const activeCodingEntries = codingCase.codingEntries.filter((entry) => entry.active)
   const stepStates = [true, Boolean(currentRun), openAlternatives.length === 0, unresolvedTechnical.length === 0, codingCase.status === 'abgeschlossen']
   const recommendedStep = firstOpenDecision ? 3 : unresolvedTechnical.length > 0 ? 4 : 5
-  const nextAction = firstOpenDecision?.title ?? unresolvedTechnical[0]?.label ?? (codingCase.status === 'abgeschlossen' ? 'Fall abgeschlossen' : 'Fallabschluss prüfen')
 
   const orderedDecisions = useMemo(
     () => [...codingCase.decisions].sort((a, b) => {
@@ -90,6 +80,11 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
     }),
     [codingCase.decisions],
   )
+  const openDecisions = orderedDecisions.filter((decision) => !['belegt', 'ausgeschlossen'].includes(decision.status))
+  const focusedDecision = openDecisions.find((decision) => decision.id === activeDecision) ?? openDecisions[0]
+  const focusedDecisionEntries = focusedDecision ? getDecisionCodingEntries(codingCase.codingEntries, focusedDecision.id, focusedDecision.title) : []
+  const focusedConsultation = focusedDecision ? codingCase.consultations.find((item) => item.decisionId === focusedDecision.id) : undefined
+  const focusedWikiStarted = focusedDecision ? codingCase.wikiThreads.some((thread) => thread.decisionId === focusedDecision.id) : false
 
   const mutateCase = (nextCase: CodingCase) => {
     onDataChange((current) => ({
@@ -507,42 +502,44 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
         <div className="case-actions">
           <div className="collaboration-counts">
             <button type="button" disabled={!firstOpenDecision} onClick={() => firstOpenDecision && setCollaboration({ mode: 'consult', decisionId: firstOpenDecision.id })}><Users aria-hidden="true" /> Kodierkonsil · {codingCase.consultations.filter((item) => item.status !== 'abgeschlossen').length}</button>
-            <button type="button" disabled={!firstOpenDecision} onClick={() => firstOpenDecision && setCollaboration({ mode: 'wiki', decisionId: firstOpenDecision.id })}><MessageCircle aria-hidden="true" /> Wiki-Chat · {codingCase.wikiThreads.length}</button>
+            <button type="button" disabled={!firstOpenDecision} onClick={() => firstOpenDecision && setCollaboration({ mode: 'wiki', decisionId: firstOpenDecision.id })}><MessageCircle aria-hidden="true" /> Kodierwiki · {codingCase.wikiThreads.length}</button>
           </div>
           <button className="button secondary" type="button" onClick={onNewCase}><Plus aria-hidden="true" /> Fall wechseln</button>
         </div>
       </div>
 
-      <section className="guided-overview" aria-label="Aktueller Fallüberblick">
-        <div className="guided-hypothesis"><span>Ausgangshypothese · Iteration {currentRun.iteration}</span><strong>{currentRun.drg} verifizieren oder falsifizieren</strong><small>{codingCase.currentMainDiagnosis}</small></div>
-        <div className="guided-next"><span>Kürzester belastbarer Weg zum abschließbaren Fall</span><strong>{nextAction}</strong><button type="button" onClick={() => setActiveStep(recommendedStep)}>Nächsten Schritt öffnen <ArrowRight aria-hidden="true" /></button></div>
-        <div className="guided-state"><span>Fallsicherheit · simulierter Arbeitsstand</span><strong>{openRequired.length === 0 && relevantDocumentGaps.length === 0 ? 'hoch' : openRequired.length <= 1 && relevantDocumentGaps.length <= 1 ? 'mittel' : 'niedrig'}</strong><small>{openRequired.length} Pflichtentscheidungen offen · {evidenceCount} Nachweise belegt · {relevantDocumentGaps.length} relevante Dokumentlücken</small></div>
-      </section>
+      {activeStep === 0 && <>
+        <TreatmentRibbon codingCase={codingCase} compact onOpenEvent={(eventId) => {
+          const event = codingCase.timeline.find((item) => item.id === eventId)
+          const documentId = event?.linkedDocumentIds?.length === 1 ? event.linkedDocumentIds[0] : undefined
+          setDocumentMapFocus({ eventId, documentId })
+          setDocumentMapOpen(true)
+        }} onOpenDepartment={(eventId, documentId) => {
+          setDocumentMapFocus({ eventId, documentId })
+          setDocumentMapOpen(true)
+        }} onOpenDecision={(decisionId) => {
+          setActiveDecision(decisionId)
+          setActiveStep(3)
+        }} />
+        <div className="case-map-secondary-actions">
+          <button type="button" onClick={() => { setDocumentMapFocus({}); setDocumentMapOpen(true) }}><MapIcon aria-hidden="true" /> Dokumente im Detail</button>
+          <button type="button" onClick={() => setHistoryOpen(true)}><History aria-hidden="true" /> Iterationen</button>
+          <button type="button" onClick={() => setActiveStep(1)}>Weitere Fallbereiche <ArrowRight aria-hidden="true" /></button>
+        </div>
+      </>}
 
-      <TreatmentRibbon codingCase={codingCase} compact onOpenEvent={(eventId) => {
-        const event = codingCase.timeline.find((item) => item.id === eventId)
-        const documentId = event?.linkedDocumentIds?.length === 1 ? event.linkedDocumentIds[0] : undefined
-        setDocumentMapFocus({ eventId, documentId })
-        setDocumentMapOpen(true)
-      }} onOpenDepartment={(eventId, documentId) => {
-        setDocumentMapFocus({ eventId, documentId })
-        setDocumentMapOpen(true)
-      }} onOpenDecision={(decisionId) => {
-        setActiveDecision(decisionId)
-        setActiveStep(3)
-      }} />
-
-      <nav className="coding-step-nav" aria-label="Kodierschritte">
-        {['Fall einordnen', 'Basis-DRG', 'Prüfungen', 'DRG & Entgelte', 'Abschluss'].map((label, index) => {
-          const step = index + 1
-          return <button key={label} type="button" className={activeStep === step ? 'active' : ''} aria-current={activeStep === step ? 'step' : undefined} onClick={() => setActiveStep(step)}><span>{stepStates[index] ? <Check aria-hidden="true" /> : step}</span><strong>{label}</strong>{step === recommendedStep && activeStep !== step && <small>Empfohlen</small>}</button>
-        })}
-      </nav>
-
-      <div className="case-tools">
-        <button type="button" onClick={() => { setDocumentMapFocus({}); setDocumentMapOpen(true) }}><MapIcon aria-hidden="true" /><span><strong>Dokumentenlandkarte</strong><small>{codingCase.documentMap.length} eingeordnet · {codingCase.documentMap.filter((item) => item.priority === 'jetzt').length} jetzt prüfen</small></span><ArrowRight aria-hidden="true" /></button>
-        <button type="button" onClick={() => setHistoryOpen(true)}><History aria-hidden="true" /><span><strong>Iterationen</strong><small>{codingCase.grouperRuns.length} Grouper-Läufe · Historie bleibt erhalten</small></span><ArrowRight aria-hidden="true" /></button>
-      </div>
+      {activeStep > 0 && activeStep !== 3 && <>
+        <nav className="coding-step-nav" aria-label="Kodierschritte">
+          {['Fall einordnen', 'Basis-DRG', 'Prüfungen', 'DRG & Entgelte', 'Abschluss'].map((label, index) => {
+            const step = index + 1
+            return <button key={label} type="button" className={activeStep === step ? 'active' : ''} aria-current={activeStep === step ? 'step' : undefined} onClick={() => setActiveStep(step)}><span>{stepStates[index] ? <Check aria-hidden="true" /> : step}</span><strong>{label}</strong>{step === recommendedStep && activeStep !== step && <small>Empfohlen</small>}</button>
+          })}
+        </nav>
+        <div className="case-tools">
+          <button type="button" onClick={() => setActiveStep(0)}><ArrowLeft aria-hidden="true" /><span><strong>Zur Fallkarte</strong><small>Behandlung, Dokumente und Kodierwirkung</small></span><ArrowRight aria-hidden="true" /></button>
+          <button type="button" onClick={() => setHistoryOpen(true)}><History aria-hidden="true" /><span><strong>Iterationen</strong><small>{codingCase.grouperRuns.length} Grouper-Läufe · Historie bleibt erhalten</small></span><ArrowRight aria-hidden="true" /></button>
+        </div>
+      </>}
 
       {documentMapOpen && <div className="fullscreen-backdrop" role="presentation" onMouseDown={() => setDocumentMapOpen(false)}><section className="fullscreen-detail" role="dialog" aria-modal="true" aria-label="Dokumentenlandkarte" onMouseDown={(event) => event.stopPropagation()}><div className="fullscreen-header"><div><div className="page-kicker">Second Screen · {codingCase.caseNumber}</div><h2>Dokumentenlandkarte</h2></div><button className="icon-button" type="button" aria-label="Schließen" onClick={() => setDocumentMapOpen(false)}><X aria-hidden="true" /></button></div><DocumentLandscape codingCase={codingCase} initialEventId={documentMapFocus.eventId} initialDocumentId={documentMapFocus.documentId} onOpenDecision={(decisionId) => { setActiveDecision(decisionId); setActiveStep(3); setDocumentMapOpen(false) }} onOpenCollaboration={(mode, decisionId) => setCollaboration({ mode, decisionId })} onConfirmReview={(documentId) => void confirmDocumentReview(documentId)} onOpenCodingEntry={setCodingEditorDocumentId} kisGuides={profile?.kisGuides ?? []} /></section></div>}
 
@@ -619,57 +616,54 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
             {firstOpenDecision?.id === 'decision-main' && <button className="button primary" type="button" onClick={() => { setActiveDecision(firstOpenDecision.id); setActiveStep(3) }}>Hauptdiagnose belegen <ArrowRight aria-hidden="true" /></button>}
           </section>
 
-          <section className="guided-step" aria-labelledby="checks-title" hidden={activeStep !== 3}>
-            <div className="section-title-row">
-              <div><div className="page-kicker">Nächster sinnvoller Prüfpunkt</div><h2 id="checks-title">Offene Entscheidungen</h2></div>
-              <span>{orderedDecisions.filter((item) => !['belegt', 'ausgeschlossen'].includes(item.status)).length} offen</span>
-            </div>
-            <div className="decision-list">
-              {orderedDecisions.filter((decision) => !['belegt', 'ausgeschlossen'].includes(decision.status)).map((decision) => {
-                const selected = activeDecision === decision.id
-                const route = getCollaborationRoute(decision)
-                const decisionEntries = getDecisionCodingEntries(codingCase.codingEntries, decision.id, decision.title)
-                const consultation = codingCase.consultations.find((item) => item.decisionId === decision.id)
-                const wikiStarted = codingCase.wikiThreads.some((thread) => thread.decisionId === decision.id)
-                return (
-                  <article className={`decision-item ${selected ? 'selected' : ''}`} key={decision.id}>
-                    <button className="decision-summary" type="button" aria-expanded={selected} onClick={() => setActiveDecision(selected ? undefined : decision.id)}>
-                      <span className={`impact-marker impact-${decision.impact}`}><span className="sr-only">Auswirkung {decision.impact}</span></span>
-                      <span className="decision-copy">
-                        <span className="decision-meta"><span className={`status-pill status-${decision.status}`}>{statusLabels[decision.status]}</span>{decision.required && <span>Pflichtprüfung</span>}<span>Gruppierung {decision.groupingRelevance}</span><span>Auswirkung {decision.impact}</span><span>Bewertet Iteration {decision.assessedIteration ?? 1}</span></span>
-                        <strong>{decision.title}</strong>
-                        <small>{decision.effect}</small>
-                      </span>
-                      <ChevronDown aria-hidden="true" />
-                    </button>
-                    {selected && (
-                      <div className="decision-details">
-                        <p>{decision.description}</p>
-                        <div className="requested-doc"><FileUp aria-hidden="true" /><span><strong>Benötigt:</strong> {decision.requestedDocument}</span></div>
-                        {decision.resolution && <div className="resolution"><Check aria-hidden="true" />{decision.resolution}</div>}
-                        <DecisionCodingWorkspace
-                          decision={decision}
-                          entries={decisionEntries}
-                          route={route}
-                          running={runningDecision === decision.id}
-                          wikiStarted={wikiStarted}
-                          consultationStatus={consultation?.status}
-                          onKnowledgeChange={(knowledge) => setDecisionKnowledge(decision.id, knowledge)}
-                          onManualCoding={() => setDirectCodingDecisionId(decision.id)}
-                          onValidatePrecode={() => void completeCodingDecision(decision.id, true)}
-                          onWiki={() => setCollaboration({ mode: 'wiki', decisionId: decision.id })}
-                          onConsult={() => setCollaboration({ mode: 'consult', decisionId: decision.id })}
-                          onEvidenceUpload={(files) => handleEvidenceUpload(decision.id, files)}
-                          onComplete={() => void completeCodingDecision(decision.id)}
-                          onExclude={() => void resolveDecision(decision.id, 'ausgeschlossen')}
-                        />
-                      </div>
-                    )}
-                  </article>
-                )
-              })}
-            </div>
-            {orderedDecisions.some((decision) => ['belegt', 'ausgeschlossen'].includes(decision.status)) && <details className="resolved-decision-summary"><summary>{orderedDecisions.filter((decision) => ['belegt', 'ausgeschlossen'].includes(decision.status)).length} erledigte Entscheidungen</summary><ul>{orderedDecisions.filter((decision) => ['belegt', 'ausgeschlossen'].includes(decision.status)).map((decision) => <li key={decision.id}><Check aria-hidden="true" /><span><strong>{decision.title}</strong><small>{decision.resolution ?? statusLabels[decision.status]}</small></span></li>)}</ul></details>}
+          <section className="focused-decision-view" aria-labelledby="checks-title" hidden={activeStep !== 3}>
+            <header className="focused-decision-nav">
+              <button type="button" onClick={() => setActiveStep(0)}><ArrowLeft aria-hidden="true" /> Zur Fallkarte</button>
+              <span>Prüfschritt {focusedDecision ? Math.max(1, openDecisions.findIndex((decision) => decision.id === focusedDecision.id) + 1) : 0} von {openDecisions.length}</span>
+              <span>DRG {currentRun.drg}</span>
+            </header>
+            {focusedDecision ? (
+              <article className="focused-decision-card">
+                <div className="focused-decision-question">
+                  <span className={`impact-marker impact-${focusedDecision.impact}`}><span className="sr-only">Auswirkung {focusedDecision.impact}</span></span>
+                  <span><small>{focusedDecision.required ? 'Pflichtprüfung' : 'Optionale Prüfung'} · Gruppierung {focusedDecision.groupingRelevance}</small><h2 id="checks-title">{focusedDecision.title}</h2><p>{focusedDecision.description}</p></span>
+                </div>
+                <div className="focused-evidence-summary">
+                  <span><small>Benötigte Quelle</small><strong>{focusedDecision.requestedDocument}</strong></span>
+                  <span><small>Mögliche Wirkung</small><strong>{focusedDecision.effect}</strong></span>
+                </div>
+                {focusedDecision.resolution && <div className="resolution"><Check aria-hidden="true" />{focusedDecision.resolution}</div>}
+                <DecisionCodingWorkspace
+                  decision={focusedDecision}
+                  entries={focusedDecisionEntries}
+                  route={getCollaborationRoute(focusedDecision)}
+                  running={runningDecision === focusedDecision.id}
+                  wikiStarted={focusedWikiStarted}
+                  consultationStatus={focusedConsultation?.status}
+                  onKnowledgeChange={(knowledge) => setDecisionKnowledge(focusedDecision.id, knowledge)}
+                  onManualCoding={() => setDirectCodingDecisionId(focusedDecision.id)}
+                  onValidatePrecode={() => void completeCodingDecision(focusedDecision.id, true)}
+                  onWiki={() => setCollaboration({ mode: 'wiki', decisionId: focusedDecision.id })}
+                  onConsult={() => setCollaboration({ mode: 'consult', decisionId: focusedDecision.id })}
+                  onEvidenceUpload={(files) => handleEvidenceUpload(focusedDecision.id, files)}
+                  onComplete={() => void completeCodingDecision(focusedDecision.id)}
+                  onExclude={() => void resolveDecision(focusedDecision.id, 'ausgeschlossen')}
+                />
+                {openDecisions.length > 1 && (
+                  <details className="remaining-decision-summary">
+                    <summary>{openDecisions.length - 1} weitere offene Entscheidung{openDecisions.length === 2 ? '' : 'en'}</summary>
+                    <p>Sie werden erst nach Abschluss dieses Prüfschritts priorisiert. Bei Bedarf kannst Du gezielt wechseln.</p>
+                    <div className="remaining-decision-links">
+                      {openDecisions.filter((decision) => decision.id !== focusedDecision.id).map((decision) => (
+                        <button type="button" key={decision.id} onClick={() => setActiveDecision(decision.id)}>
+                          <span>{decision.title}</span><ArrowRight aria-hidden="true" />
+                        </button>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </article>
+            ) : <div className="focused-decision-empty"><Check aria-hidden="true" /><span><h2 id="checks-title">Keine offene Kodierentscheidung</h2><p>Zur Fallkarte zurückkehren und den Abschluss prüfen.</p></span></div>}
           </section>
 
           <section className="entitlement-section guided-step" aria-labelledby="entitlement-title" hidden={activeStep !== 4}>
@@ -701,7 +695,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
 
       </div>
 
-      {activeStep < 5 && <div className="guided-step-footer"><button className="button secondary" type="button" disabled={activeStep === 1} onClick={() => setActiveStep((step) => Math.max(1, step - 1))}>Zurück</button><span>Schritt {activeStep} von 5</span><button className="button primary" type="button" onClick={() => setActiveStep((step) => Math.min(5, step + 1))}>Weiter <ArrowRight aria-hidden="true" /></button></div>}
+      {activeStep > 0 && activeStep < 5 && activeStep !== 3 && <div className="guided-step-footer"><button className="button secondary" type="button" onClick={() => activeStep === 1 ? setActiveStep(0) : setActiveStep((step) => Math.max(1, step - 1))}>{activeStep === 1 ? 'Zur Fallkarte' : 'Zurück'}</button><span>Schritt {activeStep} von 5</span><button className="button primary" type="button" onClick={() => setActiveStep((step) => Math.min(5, step + 1))}>Weiter <ArrowRight aria-hidden="true" /></button></div>}
 
       <div className="guided-step completion-step" hidden={activeStep !== 5}>
       <section className="completion-bar" aria-label="Fallabschluss">

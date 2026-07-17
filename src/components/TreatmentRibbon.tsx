@@ -1,4 +1,4 @@
-import { Activity, ArrowRight, BookOpenCheck, Building2, Cross, Database, FileCheck2, FileCode2, FileQuestion, GitBranch, Microscope, NotebookText, Pill, Route, Scissors, ShieldAlert, ShieldCheck, Target } from 'lucide-react'
+import { Activity, ArrowRight, BookOpenCheck, Building2, Cross, Database, FileCheck2, FileCode2, FileQuestion, GitBranch, Microscope, NotebookText, Pill, Route, ScanLine, Scissors, ShieldAlert, ShieldCheck, Target } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { CodingCase, CodingEntry, DocumentMapItem, TreatmentEvent } from '../types'
 
@@ -48,6 +48,10 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOp
     if (onOpenDepartment) onOpenDepartment(linkedEvent.id, document.id)
     else onOpenEvent?.(linkedEvent.id)
   } : undefined
+
+  if (compact) {
+    return <HypothesisCasePath codingCase={codingCase} events={relevantEvents} departments={departments} documents={documents} onOpenEvent={onOpenEvent} onOpenDocument={openDocument} onOpenDecision={onOpenDecision} />
+  }
 
   return (
     <section className={`treatment-ribbon treatment-overview ${compact ? 'is-compact' : ''}`} aria-label="Behandlungsverlauf">
@@ -104,7 +108,7 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOp
       </div>
 
       {compact ? (
-        <HypothesisCasePath codingCase={codingCase} events={relevantEvents} documents={documents} onOpenEvent={onOpenEvent} onOpenDocument={openDocument} onOpenDecision={onOpenDecision} />
+        <HypothesisCasePath codingCase={codingCase} events={relevantEvents} departments={departments} documents={documents} onOpenEvent={onOpenEvent} onOpenDocument={openDocument} onOpenDecision={onOpenDecision} />
       ) : <>
       <div className="document-grammar" aria-label="Dokumenttypen im Behandlungsverlauf">
         <DocumentGrammarCard icon={<NotebookText aria-hidden="true" />} title="Verlaufsdokumentation" count={courseDocuments.length} detail="Zeitraum · meist ICD und grobe OPS" className="course" />
@@ -186,9 +190,10 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOp
   )
 }
 
-function HypothesisCasePath({ codingCase, events, documents, onOpenEvent, onOpenDocument, onOpenDecision }: {
+function HypothesisCasePath({ codingCase, events, departments, documents, onOpenEvent, onOpenDocument, onOpenDecision }: {
   codingCase: CodingCase
   events: TreatmentEvent[]
+  departments: DepartmentStay[]
   documents: DocumentMapItem[]
   onOpenEvent?: (eventId: string) => void
   onOpenDocument?: (document: DocumentMapItem) => void
@@ -213,6 +218,24 @@ function HypothesisCasePath({ codingCase, events, documents, onOpenEvent, onOpen
     const linkedCodes = activeEntries.filter((entry) => entry.treatmentEventId === event.id)
     return linkedDocuments.length > 0 || linkedCodes.length > 0 || ['Eingriff', 'Therapie', 'Intensiv'].includes(event.type)
   })
+  const leadingStay = departments.reduce<DepartmentStay | undefined>((longest, stay) => !longest || duration(stay) > duration(longest) ? stay : longest, undefined)
+  const deferredDocuments = relevantDocuments.filter((document) => getDocumentEvidenceStatus(document).bucket === 'nonrelevant-missing').length
+  const firstMissingEventIds = new Set<string>()
+  const seenMissingDocumentIds = new Set<string>()
+  pathEvents.forEach((event) => {
+    event.linkedDocumentIds?.forEach((documentId) => {
+      const document = documents.find((candidate) => candidate.id === documentId)
+      if (!document || seenMissingDocumentIds.has(documentId)) return
+      if (getDocumentEvidenceStatus(document).bucket === 'relevant-action' && document.availability === 'fehlend') {
+        firstMissingEventIds.add(event.id)
+        seenMissingDocumentIds.add(documentId)
+      }
+    })
+  })
+  const stayProfile = currentRun?.lengthOfStay
+  const upperStay = stayProfile?.upperFirstSurchargeDay
+  const stayScale = Math.max(codingCase.stayDays, stayProfile?.meanDays ?? 0, upperStay ?? 0, 2)
+  const stayPosition = Math.min(100, Math.max(0, ((codingCase.stayDays - 1) / (stayScale - 1)) * 100))
 
   const openFocus = () => {
     if (openDecision && onOpenDecision) onOpenDecision(openDecision.id)
@@ -221,69 +244,74 @@ function HypothesisCasePath({ codingCase, events, documents, onOpenEvent, onOpen
   }
 
   return (
-    <section className="hypothesis-case-path" aria-label="Hypothesengesteuerter Fallpfad">
-      <header className="hypothesis-path-head">
-        <span className="hypothesis-target-icon"><Target aria-hidden="true" /></span>
-        <span>
-          <small>Prüfziel · Iteration {currentRun?.iteration ?? 1}</small>
-          <strong>DRG {currentRun?.drg ?? '–'} belastbar verifizieren oder falsifizieren</strong>
-          <p>Nur die nächste ergebnisrelevante Belegkette öffnen – nicht vorsorglich den ganzen Fall neu kodieren.</p>
+    <section className="quiet-case-map" aria-label="Gemeinsame Fallkarte">
+      <header className="case-map-summary">
+        <span className="case-map-drg"><small>DRG-Hypothese · Iteration {currentRun?.iteration ?? 1}</small><strong>{currentRun?.drg ?? '–'}</strong><em>{codingCase.currentMainDiagnosis}</em></span>
+        <span className={`case-map-safety safety-${safety}`}><small>Fallsicherheit</small><strong>{safety}</strong><em>{openRequired} Pflichtprüfung{openRequired === 1 ? '' : 'en'} offen</em></span>
+        <span className="case-map-stay" aria-label={`Verweildauer ${codingCase.stayDays} Tage, mittlere Verweildauer ${stayProfile?.meanDays ?? 'nicht ausgewiesen'}, obere Grenzverweildauer ${upperStay ?? 'nicht ausgewiesen'}`}>
+          <span><small>Verweildauer</small><strong>{codingCase.stayDays} Tage</strong></span>
+          <i><b style={{ left: `${stayPosition}%` }} /></i>
+          <em>MVD {stayProfile?.meanDays ?? '–'} · OGV {upperStay ?? '–'}</em>
         </span>
-        <span className="simulation-label">Simulierte Prüfsignale</span>
       </header>
 
-      <div className="hypothesis-sources" aria-label="Vorgesehene Quellen der Hypothese">
-        <HypothesisSource icon={<FileCode2 aria-hidden="true" />} label="Ausgangskodierung" value={`${activeEntries.filter((entry) => entry.origin === 'vorkodierung').length} Vorkodes`} detail="Startpunkt, kein Beleg" />
-        <HypothesisSource icon={<BookOpenCheck aria-hidden="true" />} label="Regelwerke" value="DKR · ICD-10-GM · OPS" detail="Prüfung vorgesehen" />
-        <HypothesisSource icon={<GitBranch aria-hidden="true" />} label="Grouperraum" value={`Pfad ${currentRun?.drg ?? 'offen'}`} detail="bis zu 1.450 Fallpauschalen · Änderungsvarianz vorgesehen" />
-        <HypothesisSource icon={<Database aria-hidden="true" />} label="Haus- & Verlaufswissen" value={`${codingCase.comparableCases} Vergleichsfälle`} detail={`${codingCase.hospitalTypicality} · Fachabteilung ↔ MDC`} />
-      </div>
+      <button className="case-map-next-action" type="button" onClick={openFocus} disabled={!openDecision && !focusEvent && !focusDocument}>
+        <span className="case-map-next-number">1</span>
+        <span><small>Nächster belastbarer Schritt</small><strong>{focusTitle}</strong><em>{focusReason}</em></span>
+        <span>Prüfen <ArrowRight aria-hidden="true" /></span>
+      </button>
 
-      <article className="shortest-path-action">
-        <span className="shortest-path-number">1</span>
-        <span>
-          <small>Nächster kürzester belastbarer Schritt</small>
-          <strong>{focusTitle}</strong>
-          <p>{focusReason}</p>
-        </span>
-        <button type="button" onClick={openFocus} disabled={!openDecision && !focusEvent && !focusDocument}>Gezielt prüfen <ArrowRight aria-hidden="true" /></button>
-      </article>
-
-      <section className="evidence-chain" aria-label="Verlauf, Dokumente und Kodierung als gemeinsame Belegkette">
-        <header><span><Route aria-hidden="true" /><strong>Behandlungsverlauf als Belegkette</strong></span><small>LLM-Entwurf aus den hochgeladenen Entlassungsberichten</small></header>
-        <div className="evidence-chain-list">
-          {pathEvents.map((event) => {
-            const linkedDocuments = documents.filter((document) => event.linkedDocumentIds?.includes(document.id))
-            const linkedCodes = activeEntries.filter((entry) => entry.treatmentEventId === event.id)
-            const hasRelevantGap = linkedDocuments.some((document) => getDocumentEvidenceStatus(document).bucket === 'relevant-action')
-            const hasUnprovenCode = linkedCodes.some((entry) => entry.reviewStatus !== 'belegt' && entry.groupingImpact !== 'ohne-änderung')
-            const hasProof = linkedDocuments.some((document) => ['grob-geprüft', 'validiert'].includes(document.reviewLevel)) && linkedCodes.some((entry) => entry.reviewStatus === 'belegt')
-            const state = hasRelevantGap || hasUnprovenCode ? 'open' : hasProof ? 'checked' : 'context'
-            const isFocus = event.id === focusEvent?.id
-            return (
-              <button className={`evidence-chain-row state-${state} ${isFocus ? 'is-focus' : ''}`} type="button" key={event.id} onClick={() => onOpenEvent?.(event.id)}>
-                <span className="chain-event"><EventIcon event={event} /><span><small>{formatDay(codingCase, event.day)} · {event.department}</small><strong>{event.label}</strong></span></span>
-                <span className="chain-documents"><small>Dokumentbezug</small><strong>{linkedDocuments.length ? linkedDocuments.map((document) => document.title).join(' · ') : 'Noch kein Einzeldokument'}</strong><em>{linkedDocuments.length ? linkedDocuments.map((document) => getDocumentEvidenceStatus(document).detail).join(' · ') : 'aus Entlassungsbericht abgeleitet'}</em></span>
-                <span className="chain-coding"><small>Kodierwirkung</small><strong>{linkedCodes.length ? linkedCodes.map((entry) => `${entry.type} ${entry.code}`).join(' · ') : 'Kodierung offen'}</strong><em>{linkedCodes.length ? linkedCodes.map((entry) => groupingImpactLabels[entry.groupingImpact ?? 'potenziell'].label).join(' · ') : 'erst bei Ergebnisrelevanz bearbeiten'}</em></span>
-                <span className={`chain-state ${state}`}>{state === 'checked' ? <ShieldCheck aria-hidden="true" /> : state === 'open' ? <ShieldAlert aria-hidden="true" /> : <FileQuestion aria-hidden="true" />}{isFocus ? 'Jetzt prüfen' : state === 'checked' ? 'Belegt' : state === 'open' ? 'Offen' : 'Kontext'}</span>
-              </button>
-            )
-          })}
+      <figure className="case-map-figure">
+        <figcaption><span><strong>Behandlung, Dokumente und Kodierwirkung</strong><small>Ein gemeinsamer Verlauf · Klick öffnet nur die gewählte Stelle</small></span><span>{formatDay(codingCase, 1)}–{formatDay(codingCase, codingCase.stayDays)}</span></figcaption>
+        <div className="case-map-departments" aria-label="Fachabteilungen im Verlauf">
+          {departments.map((stay) => <span className={`${stay.intensive ? 'is-intensive' : ''} ${stay === leadingStay ? 'is-leading' : ''}`} style={{ width: `${(duration(stay) / codingCase.stayDays) * 100}%` }} key={`${stay.department}-${stay.start}`}><strong>{stay.department}</strong><small>{duration(stay)} Tag{duration(stay) === 1 ? '' : 'e'}</small></span>)}
         </div>
-      </section>
+        <div className="case-map-event-scroll">
+          <div className="case-map-event-track" style={{ gridTemplateColumns: `repeat(${pathEvents.length}, minmax(112px, 1fr))` }}>
+            {pathEvents.map((event) => {
+              const linkedDocuments = documents.filter((document) => event.linkedDocumentIds?.includes(document.id) && document.kind !== 'vorkodierung')
+              const linkedCodes = activeEntries.filter((entry) => entry.treatmentEventId === event.id)
+              const primaryDocument = linkedDocuments.find((document) => document.priority === 'jetzt') ?? linkedDocuments[0]
+              const isFocus = event.id === focusEvent?.id
+              const hasMissingRelevant = firstMissingEventIds.has(event.id)
+              const hasCheckedRelevant = linkedDocuments.some((document) => getDocumentEvidenceStatus(document).bucket === 'relevant-checked')
+              const hasOpenRelevant = linkedDocuments.some((document) => getDocumentEvidenceStatus(document).bucket === 'relevant-action')
+              const state = isFocus ? 'focus' : hasMissingRelevant ? 'missing' : hasCheckedRelevant ? 'checked' : 'context'
+              const statusLabel = isFocus ? 'jetzt prüfen' : hasMissingRelevant ? 'Nachweis fehlt' : hasCheckedRelevant ? 'geprüft' : hasOpenRelevant ? 'gleicher Nachweis' : 'Kontext'
+              const kindLabel = primaryDocument?.kind === 'verlaufsbericht' ? 'Verlauf' : primaryDocument?.kind === 'ereignisbericht' ? 'Bericht' : primaryDocument?.kind === 'nachweis' ? 'Nachweis' : 'Arztbrief'
+              const groupingCodes = linkedCodes.filter((entry) => (entry.groupingImpact ?? 'potenziell') !== 'ohne-änderung')
+              const groupingRelevant = groupingCodes.length > 0 || linkedDocuments.some((document) => [document.outcomeDimensions.drg, document.outcomeDimensions.ops, document.outcomeDimensions.entgelte].includes('relevant'))
+              const label = `${formatDay(codingCase, event.day)}, ${event.department}, ${event.label}. ${primaryDocument ? `${primaryDocument.title}: ${statusLabel}` : 'Aus Entlassungsbericht abgeleitet'}. ${groupingRelevant ? 'Mögliche Grouperwirkung.' : 'Derzeit keine Grouperwirkung.'}`
+              return (
+                <button className={`case-map-event state-${state}`} type="button" key={event.id} aria-label={label} title={primaryDocument?.title} onClick={() => onOpenEvent?.(event.id)}>
+                  <span className="case-map-event-meta">{formatDay(codingCase, event.day)}<em>{event.department}</em></span>
+                  <span className="case-map-event-node"><EventIcon event={event} /></span>
+                  <strong>{event.label}</strong>
+                  <span className="case-map-document-state">
+                    {state === 'checked' ? <FileCheck2 aria-hidden="true" /> : state === 'missing' ? <ShieldAlert aria-hidden="true" /> : state === 'focus' ? <FileQuestion aria-hidden="true" /> : <NotebookText aria-hidden="true" />}
+                    <span>{kindLabel} · {statusLabel}</span>{linkedDocuments.length > 1 && <b>+{linkedDocuments.length - 1}</b>}
+                  </span>
+                  {groupingRelevant && <span className="case-map-grouping">◆ {groupingCodes.map((entry) => entry.type).join(' · ') || 'DRG'}</span>}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+        <div className="case-map-legend" aria-label="Legende">
+          <span className="state-checked"><i>✓</i> geprüft</span>
+          <span className="state-focus"><i>?</i> jetzt prüfen</span>
+          <span className="state-missing"><i>!</i> relevanter Nachweis fehlt</span>
+          <span className="state-context"><i>○</i> Kontext</span>
+          <span><i>◆</i> mögliche Grouperwirkung</span>
+        </div>
+      </figure>
 
-      <GroupingInfluencePanel codingEntries={codingCase.codingEntries} />
-
-      <footer className={`case-safety safety-${safety}`}>
-        <ShieldCheck aria-hidden="true" />
-        <span><small>Arbeitsstand, keine fachliche Garantie</small><strong>Fallsicherheit {safety}</strong><p>{openRequired} Pflichtentscheidung{openRequired === 1 ? '' : 'en'} und {relevantGaps} ergebnisrelevante Dokumentlücke{relevantGaps === 1 ? '' : 'n'} verbleiben.</p></span>
+      <footer className="case-map-footer">
+        <details><summary>Warum dieser Schritt?</summary><p>Vorgesehen ist die Ableitung aus Vorkodierung, DKR, ICD-10-GM, OPS, Grouperpfad sowie Haus- und Vergleichsfällen. Im Prototyp sind diese Signale simuliert.</p></details>
+        <span>{deferredDocuments ? `${deferredDocuments} derzeit nicht benötigte${deferredDocuments === 1 ? 's' : ''} fehlende${deferredDocuments === 1 ? 's' : ''} Dokument${deferredDocuments === 1 ? '' : 'e'} ausgeblendet` : 'Keine derzeit irrelevanten Dokumentlücken'}</span>
       </footer>
     </section>
   )
-}
-
-function HypothesisSource({ icon, label, value, detail }: { icon: ReactNode; label: string; value: string; detail: string }) {
-  return <span>{icon}<span><small>{label}</small><strong>{value}</strong><em>{detail}</em></span></span>
 }
 
 function LengthOfStayBand({ codingCase }: { codingCase: CodingCase }) {
@@ -441,6 +469,7 @@ function LaneIcon({ lane }: { lane: ActivityLaneKey }) {
 
 export function EventIcon({ event }: { event: TreatmentEvent }) {
   if (event.type === 'Eingriff') return <Scissors aria-hidden="true" />
+  if (event.type === 'Diagnostik' && /(CT|Röntgen|Bildgebung|Restaging|Kontrolle)/i.test(event.label)) return <ScanLine aria-hidden="true" />
   if (event.type === 'Diagnostik') return <Microscope aria-hidden="true" />
   if (event.type === 'Therapie') return <Pill aria-hidden="true" />
   if (event.type === 'Intensiv') return <Activity aria-hidden="true" />
