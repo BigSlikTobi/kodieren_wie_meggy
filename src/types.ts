@@ -276,6 +276,14 @@ export interface MedicalJustification {
   reviewer?: string
 }
 
+export interface GrouperAdministrativeData {
+  admissionReasonCode: string
+  admissionReasonLabel: string
+  dischargeReasonCode: string
+  dischargeReasonLabel: string
+  admissionWeightGrams?: number
+}
+
 export interface CodingCase {
   id: string
   caseNumber: string
@@ -313,6 +321,7 @@ export interface CodingCase {
   grouperRuns: GrouperRun[]
   codingEntries: CodingEntry[]
   technicalValues: TechnicalCaseValue[]
+  grouperAdministrativeData: GrouperAdministrativeData
   medicalJustification: MedicalJustification
   createdAt: string
 }
@@ -358,5 +367,6 @@ export interface NewCaseInput {
   scenario: CodingCase['scenario']
   files: string[]
   technicalValues?: TechnicalCaseValue[]
+  grouperAdministrativeData?: GrouperAdministrativeData
   intakeSources?: IntakeSource[]
 }

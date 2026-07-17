@@ -781,6 +781,13 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
     ],
     codingEntries,
     technicalValues: input.technicalValues ?? [],
+    grouperAdministrativeData: input.grouperAdministrativeData ?? {
+      admissionReasonCode: '01 07',
+      admissionReasonLabel: 'vollstationär · Notfall',
+      dischargeReasonCode: '01 90',
+      dischargeReasonLabel: 'regulär beendet · illustrative Demoangabe',
+      admissionWeightGrams: input.age < 1 ? 3250 : undefined,
+    },
     medicalJustification: isComplex
       ? {
           status: 'entwurf-belegbar',

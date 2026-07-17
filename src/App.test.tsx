@@ -78,6 +78,7 @@ describe('Kodierpfad prototype', () => {
     expect(screen.getByRole('button', { name: /Dokumente und Kodes öffnen/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Kodierkonsil · 0/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Kodierwiki · 0/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /KIS-Übergabe/i })).toBeInTheDocument()
     expect(screen.getAllByText(/Iteration 1/i).length).toBeGreaterThan(0)
     await user.click(within(caseMap).getByRole('button', { name: /Nächster belastbarer Schritt/i }))
     expect(screen.getByRole('heading', { name: /Hauptdiagnose über den Gesamtfall belegen/i })).toBeInTheDocument()
@@ -122,6 +123,30 @@ describe('Kodierpfad prototype', () => {
     await waitFor(() => expect(screen.getByRole('dialog', { name: 'Dokumentenlandkarte' })).toBeInTheDocument())
     expect(screen.getByText(/LLM-Zuordnung vorbereitet/i)).toBeInTheDocument()
     expect(screen.getAllByText(/Iteration 2/i).length).toBeGreaterThan(0)
+  })
+
+  it('macht alle sekundären Grouper-Eingaben für den KIS-Abgleich abrufbar', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openManualCockpit(user)
+
+    await user.click(screen.getByRole('button', { name: /^Grouper-Eingaben$/i }))
+    const grouperInputs = screen.getByRole('dialog', { name: 'Grouper-Eingaben' })
+    expect(within(grouperInputs).getByText('Aufnahmegrund')).toBeInTheDocument()
+    expect(within(grouperInputs).getByText('01 07')).toBeInTheDocument()
+    expect(within(grouperInputs).getByText(/vollstationär · Notfall/i)).toBeInTheDocument()
+    expect(within(grouperInputs).getByText('Entlassungsgrund')).toBeInTheDocument()
+    expect(within(grouperInputs).getByText('67 Jahre')).toBeInTheDocument()
+    expect(within(grouperInputs).getByText('0 Stunden')).toBeInTheDocument()
+    expect(within(grouperInputs).getByText(/Pneumologie → Onkologie/i)).toBeInTheDocument()
+
+    await user.click(within(grouperInputs).getByRole('tab', { name: /Diagnosen/i }))
+    expect(within(grouperInputs).getByText('C34.9')).toBeInTheDocument()
+    expect(within(grouperInputs).getByText('J18.9')).toBeInTheDocument()
+
+    await user.click(within(grouperInputs).getByRole('tab', { name: /Prozeduren/i }))
+    expect(within(grouperInputs).getByText('1-620.0')).toBeInTheDocument()
+    expect(within(grouperInputs).getByText(/04.07.2026 · 08:45 · Pneumologie/i)).toBeInTheDocument()
   })
 
   it('erfasst ICD und OPS am Dokument, gruppiert neu und zeigt die KIS-Änderungsliste', async () => {
@@ -357,9 +382,11 @@ describe('Kodierpfad prototype', () => {
     await user.click(screen.getByRole('button', { name: /Zur Fallkarte/i }))
     await openGuidedAreas(user)
     await user.click(screen.getByRole('button', { name: /Abschluss/i }))
-    await waitFor(() => expect(screen.getByRole('button', { name: /Abschlussvorschlag/i })).toBeEnabled())
-    await user.click(screen.getByRole('button', { name: /Abschlussvorschlag/i }))
-    expect(screen.getByRole('heading', { name: /Fallabschluss/i })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: /Prüfung abschließen/i })).toBeEnabled())
+    await user.click(screen.getByRole('button', { name: /Prüfung abschließen/i }))
+    expect(screen.getByRole('heading', { name: /Prüfung abgeschlossen – KIS-Übernahme ausstehend/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /KIS-Übertragungsliste öffnen/i })).toBeInTheDocument()
+    expect(screen.getByText(/Keine Schnittstelle zum Primärsystem/i)).toBeInTheDocument()
   })
 
   it('verwaltet hausbezogene KIS-Fundorte getrennt von Falldokumenten', async () => {

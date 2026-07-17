@@ -70,6 +70,12 @@ function normalizeData(value: AppData): AppData {
       })),
       timeline: codingCase.timeline.map((event) => ({ ...event, linkedDocumentIds: event.linkedDocumentIds ?? [] })),
       technicalValues: codingCase.technicalValues ?? [],
+      grouperAdministrativeData: codingCase.grouperAdministrativeData ?? {
+        admissionReasonCode: '01 07',
+        admissionReasonLabel: 'vollstationär · Notfall',
+        dischargeReasonCode: '01 90',
+        dischargeReasonLabel: 'regulär beendet · illustrative Demoangabe',
+      },
       documentMap: (codingCase.documentMap ?? []).map((document) => ({
         ...document,
         outcomeDimensions: document.outcomeDimensions ?? {

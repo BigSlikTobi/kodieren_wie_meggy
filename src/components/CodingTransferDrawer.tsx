@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import { Check, ClipboardCopy, Info, ServerCog, X } from 'lucide-react'
+import { Check, ClipboardCopy, Database, Info, ServerCog, X } from 'lucide-react'
 import type { CodingCase, CodingChange, CodingEntry } from '../types'
 
 interface CodingTransferDrawerProps {
   codingCase: CodingCase
   onClose: () => void
+  onOpenGrouperInputs: () => void
 }
 
 const changeLabels: Record<CodingChange, string> = {
@@ -14,7 +15,7 @@ const changeLabels: Record<CodingChange, string> = {
   deleted: 'Gelöscht',
 }
 
-export function CodingTransferDrawer({ codingCase, onClose }: CodingTransferDrawerProps) {
+export function CodingTransferDrawer({ codingCase, onClose, onOpenGrouperInputs }: CodingTransferDrawerProps) {
   const [copied, setCopied] = useState(false)
   const [view, setView] = useState<'changes' | 'full'>('changes')
   const activeEntries = codingCase.codingEntries.filter((entry) => entry.active)
@@ -66,7 +67,7 @@ export function CodingTransferDrawer({ codingCase, onClose }: CodingTransferDraw
 
         <div className="coding-transfer-head">
           <div><span>Aktuelle Gruppierung</span><strong>{currentRun.drg}</strong><small>Iteration {currentRun.iteration} · Basis {currentRun.baseDrg} · PCCL {currentRun.pccL}</small></div>
-          <button className="button primary" type="button" onClick={() => void copy()}>{copied ? <Check aria-hidden="true" /> : <ClipboardCopy aria-hidden="true" />}{copied ? 'Kopiert' : view === 'changes' ? 'Änderungsliste kopieren' : 'Vollständige Liste kopieren'}</button>
+          <div className="coding-transfer-head-actions"><button className="button secondary" type="button" onClick={onOpenGrouperInputs}><Database aria-hidden="true" /> Grouper-Eingaben</button><button className="button primary" type="button" onClick={() => void copy()}>{copied ? <Check aria-hidden="true" /> : <ClipboardCopy aria-hidden="true" />}{copied ? 'Kopiert' : view === 'changes' ? 'Änderungsliste kopieren' : 'Vollständige Liste kopieren'}</button></div>
         </div>
 
         <div className="coding-change-summary" aria-label="Änderungen gegenüber der Vorkodierung">
