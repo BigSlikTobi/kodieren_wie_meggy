@@ -188,7 +188,23 @@ function LengthOfStayBand({ codingCase }: { codingCase: CodingCase }) {
   const profile = currentRun?.lengthOfStay
   if (!currentRun || !profile || profile.meanDays <= 0) return null
 
-  const lower = profile.lowerFirstß]í¢G§²ÚîÆ­yÜspan className={`stay-corridor-status ${status.includes('Zuschlag') || status.includes('Abschlag') ? 'is-outside' : ''}`}>{status}</span>
+  const lower = profile.lowerFirstDiscountDay
+  const upper = profile.upperFirstSurchargeDay
+  const scaleMaximum = Math.max(codingCase.stayDays, profile.meanDays, upper ?? 0, 2)
+  const position = (day: number) => `${Math.min(100, Math.max(0, ((day - 1) / (scaleMaximum - 1)) * 100))}%`
+  const meanDelta = codingCase.stayDays - profile.meanDays
+  const status = lower !== undefined && codingCase.stayDays <= lower
+    ? 'Unterer Abschlagsbereich'
+    : upper !== undefined && codingCase.stayDays >= upper
+      ? 'Oberer Zuschlagsbereich'
+      : 'Innerhalb der Grenzverweildauer'
+  const distanceToUpper = upper === undefined ? undefined : upper - codingCase.stayDays
+
+  return (
+    <section className="drg-stay-band" aria-label="Verweildauer zur aktuellen DRG-Hypothese">
+      <header>
+        <span><strong>Verweildauer im DRG-Kontext</strong><small>{currentRun.drg} Â· {profile.careSetting} Â· Katalog {profile.catalogYear}</small></span>
+        <span className={`stay-corridor-status ${status.includes('Zuschlag') || status.includes('Abschlag') ? 'is-outside' : ''}`}>{status}</span>
       </header>
       <div className="drg-stay-scale" aria-hidden="true">
         <div className="drg-stay-track">
