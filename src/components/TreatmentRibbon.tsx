@@ -18,6 +18,7 @@ interface DepartmentStay {
 
 type ActivityLaneKey = 'diagnostic-non-invasive' | 'diagnostic-invasive' | 'intervention' | 'therapy' | 'complex'
 type DocumentHypothesisBucket = 'precode' | 'validated' | 'provisional' | 'action' | 'neutral'
+type DocumentEvidenceBucket = 'relevant-checked' | 'relevant-action' | 'nonrelevant-checked' | 'nonrelevant-missing'
 
 const laneConfig: Array<{ key: ActivityLaneKey; label: string; shortLabel: string }> = [
   { key: 'diagnostic-non-invasive', label: 'Nicht-invasive Diagnostik', shortLabel: 'Nicht-invasiv' },
@@ -38,6 +39,7 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOp
   const intensiveDays = departments.filter((stay) => stay.intensive).reduce((sum, stay) => sum + duration(stay), 0)
   const transitionCount = Math.max(0, departments.length - 1)
   const relevantEvents = events.filter((event) => !['Aufnahme', 'Verlegung', 'Entlassung'].includes(event.type))
+  const currentRun = codingCase.grouperRuns.at(-1)
   const openDocument = onOpenDepartment || onOpenEvent ? (document: DocumentMapItem) => {
     const linkedEvent = events.find((event) => event.linkedDocumentIds?.includes(document.id))
       ?? events.find((event) => event.department === document.department && event.day >= document.startDay && event.day <= (document.endDay ?? document.startDay))
@@ -61,6 +63,8 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOp
           <span><b>{relevantEvents.filter((event) => ['therapy', 'complex'].includes(getActivityLane(event))).length}</b> Therapien</span>
         </div>
       </header>
+
+      {compact && currentRun?.lengthOfStay && <LengthOfStayBand codingCase={codingCase} />}
 
       <div className="stay-map">
         <div className="ribbon-axis">
@@ -106,6 +110,8 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOp
 
       <DocumentHypothesisPanel documents={documents} codingEntries={codingCase.codingEntries} onOpenDocument={openDocument} />
 
+      {compact && <GroupingInfluencePanel codingEntries={codingCase.codingEntries} />}
+
       {courseDocuments.length > 0 && (
         <div className="course-document-lane">
           <span className="activity-lane-label"><NotebookText aria-hidden="true" /><span><strong>Verlaufsberichte</strong><small>spannen einen oder mehrere Aufenthaltsteile auf</small></span></span>
@@ -135,7 +141,8 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOp
               <div className="activity-lane-track" aria-label={`${lane.label}: ${labels.join(', ')}`}>
                 {groupEventsByDay(laneEvents).map((group) => {
                   const event = group.events[0]
-                  const position = codingCase.stayDays <= 1 ? 0 : ((event.day - 1) / (codingCase.stayDays - 1)) * 100
+                  const visibleDay = Math.min(codingCase.stayDays, Math.max(1, event.day))
+                  const position = codingCase.stayDays <= 1 ? 0 : ((visibleDay - 1) / (codingCase.stayDays - 1)) * 100
                   const linkedDocs = uniqueDocuments(group.events.flatMap((item) => documents.filter((document) => item.linkedDocumentIds?.includes(document.id))))
                   const eventDocCount = linkedDocs.filter((document) => document.kind === 'ereignisbericht').length
                   const proofDocCount = linkedDocs.filter((document) => document.kind === 'nachweis').length
@@ -176,42 +183,115 @@ export function TreatmentRibbon({ codingCase, compact = false, onOpenEvent, onOp
   )
 }
 
+function LengthOfStayBand({ codingCase }: { codingCase: CodingCase }) {
+  const currentRun = codingCase.grouperRuns.at(-1)
+  const profile = currentRun?.lengthOfStay
+  if (!currentRun || !profile || profile.meanDays <= 0) return null
+
+  const lower = profile.lowerFirstDiscountDay
+  const upper = profile.upperFirstSurchargeDay
+  const scaleMaximum = Math.max(codingCase.stayDays, profile.meanDays, upper ?? 0, 2)
+  const position = (day: number) => `${Math.min(100, Math.max(0, ((day - 1) / (scaleMaximum - 1)) * 100))}%`
+  const meanDelta = codingCase.stayDays - profile.meanDays
+  const status = lower !== undefined && codingCase.stayDays <= lower
+    ? 'Unterer Abschlagsbereich'
+    : upper !== undefined && codingCase.stayDays >= upper
+      ? 'Oberer Zuschlagsbereich'
+      : 'Innerhalb der Grenzverweildauer'
+  const distanceToUpper = upper === undefined ? undefined : upper - codingCase.stayDays
+
+  return (
+    <section className="drg-stay-band" aria-label="Verweildauer zur aktuellen DRG-Hypothese">
+      <header>
+        <span><strong>Verweildauer im DRG-Kontext</strong><small>{currentRun.drg} · {profile.careSetting} · Katalog {profile.catalogYear}</small></span>
+        <span className={`stay-corridor-status ${status.includes('Zuschlag') || status.includes('Abschlag') ? 'is-outside' : ''}`}>{status}</span>
+      </header>
+      <div className="drg-stay-scale" aria-hidden="true">
+        <div className="drg-stay-track">
+          <span className="drg-stay-progress" style={{ width: position(codingCase.stayDays) }} />
+          {lower !== undefined && <i className="stay-threshold lower" style={{ left: position(lower) }} />}
+          <i className="stay-threshold mean" style={{ left: position(profile.meanDays) }} />
+          <i className="stay-threshold current" style={{ left: position(codingCase.stayDays) }} />
+          {upper !== undefined && <i className="stay-threshold upper" style={{ left: position(upper) }} />}
+        </div>
+      </div>
+      <div className="drg-stay-values">
+        <span><small>UGV</small><strong>{lower === undefined ? '–' : `Tag ${lower}`}</strong><em>erster Abschlagstag</em></span>
+        <span><small>MVD</small><strong>{profile.meanDays.toLocaleString('de-DE')} Tage</strong><em>{meanDelta === 0 ? 'Fall entspricht MVD' : `${Math.abs(meanDelta).toLocaleString('de-DE')} Tage ${meanDelta > 0 ? 'darüber' : 'darunter'}`}</em></span>
+        <span className="is-current"><small>Aktueller Fall</small><strong>{codingCase.stayDays} Tage</strong><em>{distanceToUpper === undefined ? 'OGV nicht ausgewiesen' : distanceToUpper > 0 ? `${distanceToUpper} Tage bis OGV` : distanceToUpper === 0 ? 'erster Zuschlagstag' : `${Math.abs(distanceToUpper)} Tage über OGV`}</em></span>
+        <span><small>OGV</small><strong>{upper === undefined ? '–' : `Tag ${upper}`}</strong><em>erster Zuschlagstag</em></span>
+      </div>
+    </section>
+  )
+}
+
+const groupingImpactLabels = {
+  pfadbestimmend: { label: 'Pfadbestimmend', detail: 'Bestimmt MDC oder führenden DRG-Pfad' },
+  'split-relevant': { label: 'Split-relevant', detail: 'Kann die konkrete DRG innerhalb des Pfads verändern' },
+  potenziell: { label: 'DRG/ZE möglich', detail: 'Wirkung hängt vom vollständigen Nachweis ab' },
+  'ohne-änderung': { label: 'Aktuell ohne Änderung', detail: 'Gegenprobe verändert das Ergebnis derzeit nicht' },
+} as const
+
+function GroupingInfluencePanel({ codingEntries }: { codingEntries: CodingEntry[] }) {
+  const activeEntries = codingEntries.filter((entry) => entry.active)
+  return (
+    <section className="grouping-influence-panel" aria-label="Einfluss von Diagnosen und Prozeduren auf die aktuelle DRG-Hypothese">
+      <header><span><strong>Diagnosen und Prozeduren im Grouperpfad</strong><small>Definitionspfad und Gegenprobe gelten für die aktuelle Iteration.</small></span><span>{activeEntries.length} aktive Kodes</span></header>
+      <div className="grouping-influence-list">
+        {activeEntries.map((entry) => {
+          const impactKey = entry.groupingImpact ?? (entry.type === 'HD' ? 'pfadbestimmend' : entry.type === 'OPS' ? 'potenziell' : 'ohne-änderung')
+          const impact = groupingImpactLabels[impactKey]
+          const reviewLabel = entry.reviewStatus === 'belegt' ? 'belegt' : entry.reviewStatus === 'wahrscheinlich' ? 'vorläufig' : entry.reviewStatus === 'widersprüchlich' ? 'widersprüchlich' : 'ungeprüft'
+          return (
+            <div className={`grouping-influence-row impact-${impactKey}`} key={entry.id}>
+              <span className="coding-type">{entry.type}</span>
+              <span><strong><code>{entry.code}</code> · {entry.description}</strong><small>{reviewLabel} · bewertet in Iteration {entry.assessedIteration}</small></span>
+              <span><strong>{impact.label}</strong><small>{entry.groupingImpactReason ?? impact.detail}</small></span>
+            </div>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 function DocumentGrammarCard({ icon, title, count, detail, className }: { icon: ReactNode; title: string; count: number; detail: string; className: string }) {
   return <div className={`document-grammar-card grammar-${className}`}>{icon}<span><strong>{title}</strong><small>{detail}</small></span><b>{count}</b></div>
 }
 
-const hypothesisGroupConfig: Array<{ bucket: DocumentHypothesisBucket; label: string; description: string; icon: ReactNode }> = [
-  { bucket: 'precode', label: 'Vorkodierung', description: 'Ausgangspunkt, noch kein Fallnachweis', icon: <FileCode2 aria-hidden="true" /> },
-  { bucket: 'action', label: 'Jetzt klären', description: 'Potentiell relevant für DRG oder Entgelt', icon: <ShieldAlert aria-hidden="true" /> },
-  { bucket: 'validated', label: 'Validiert', description: 'Geprüft und stimmig zur Hypothese', icon: <ShieldCheck aria-hidden="true" /> },
-  { bucket: 'provisional', label: 'Vorläufig stimmig', description: 'Grobabgleich reicht aktuell aus', icon: <FileCheck2 aria-hidden="true" /> },
-  { bucket: 'neutral', label: 'Vermutlich nicht relevant', description: 'Aktuell kein realistischer Ergebniswechsel', icon: <FileQuestion aria-hidden="true" /> },
+const evidenceGroupConfig: Array<{ bucket: DocumentEvidenceBucket; label: string; description: string; icon: ReactNode }> = [
+  { bucket: 'relevant-checked', label: 'Relevant · geprüft', description: 'Stützt oder falsifiziert die Hypothese', icon: <ShieldCheck aria-hidden="true" /> },
+  { bucket: 'relevant-action', label: 'Relevant · offen oder fehlend', description: 'Höchster möglicher Ergebnisbeitrag', icon: <ShieldAlert aria-hidden="true" /> },
+  { bucket: 'nonrelevant-checked', label: 'Derzeit nicht relevant · geprüft', description: 'Gegenprobe ohne Ergebnisänderung', icon: <FileCheck2 aria-hidden="true" /> },
+  { bucket: 'nonrelevant-missing', label: 'Derzeit nicht relevant · fehlt', description: 'Keine Nachforderung ohne neue Hinweise', icon: <FileQuestion aria-hidden="true" /> },
 ]
 
 function DocumentHypothesisPanel({ documents, codingEntries, onOpenDocument }: { documents: DocumentMapItem[]; codingEntries: CodingEntry[]; onOpenDocument?: (document: DocumentMapItem) => void }) {
-  const available = documents.filter((document) => document.availability === 'vorhanden').length
-  const missing = documents.length - available
+  const evidenceDocuments = documents.filter((document) => document.kind !== 'vorkodierung')
   const precodeCount = codingEntries.filter((entry) => entry.active && entry.origin === 'vorkodierung').length
+  const relevantOpen = evidenceDocuments.filter((document) => getDocumentEvidenceStatus(document).bucket === 'relevant-action').length
+  const checked = evidenceDocuments.filter((document) => ['relevant-checked', 'nonrelevant-checked'].includes(getDocumentEvidenceStatus(document).bucket)).length
   return (
     <section className="document-hypothesis-panel" aria-label="Dokumentenbewertung zur DRG-Hypothese">
       <header>
-        <span><strong>DRG-Dokumentenlage</strong><small>Bewertung gilt für die aktuelle Hypothese und wird je Iteration neu geprüft.</small></span>
-        <span>{available} vorhanden · {missing} fehlend · {precodeCount} Vorkodes</span>
+        <span><strong>Beweislage zur aktuellen DRG- und Entgelthypothese</strong><small>Relevanz, Verfügbarkeit und Prüfstand werden je Iteration neu bewertet.</small></span>
+        <span>{relevantOpen} relevante Lücke{relevantOpen === 1 ? '' : 'n'} · {checked} geprüft · {precodeCount} Vorkodes</span>
       </header>
-      <div className="document-hypothesis-groups">
-        {hypothesisGroupConfig.map((group) => {
-          const groupedDocuments = documents.filter((document) => getDocumentHypothesisStatus(document).bucket === group.bucket)
-          if (!groupedDocuments.length) return null
+      <div className="precode-context"><FileCode2 aria-hidden="true" /><span><strong>Vorkodierung ist der Ausgangspunkt</strong><small>Sie priorisiert die Prüfung, zählt aber nicht als Fallnachweis.</small></span></div>
+      <div className="document-hypothesis-groups evidence-matrix">
+        {evidenceGroupConfig.map((group) => {
+          const groupedDocuments = evidenceDocuments.filter((document) => getDocumentEvidenceStatus(document).bucket === group.bucket)
           return (
             <section className={`document-hypothesis-group hypothesis-${group.bucket}`} key={group.bucket}>
               <div className="document-hypothesis-group-head">{group.icon}<span><strong>{group.label}</strong><small>{group.description}</small></span><b>{groupedDocuments.length}</b></div>
               <div className="hypothesis-document-list">
+                {groupedDocuments.length === 0 && <p className="empty-evidence-bucket">Keine Dokumente in diesem Status</p>}
                 {groupedDocuments.map((document) => {
-                  const status = getDocumentHypothesisStatus(document)
+                  const status = getDocumentEvidenceStatus(document)
                   const linkedEntries = document.kind === 'vorkodierung'
                     ? codingEntries.filter((entry) => entry.active && entry.origin === 'vorkodierung')
                     : codingEntries.filter((entry) => entry.active && entry.evidenceDocumentId === document.id)
-                  const content = <><span>{document.availability === 'fehlend' ? <FileQuestion aria-hidden="true" /> : <FileCheck2 aria-hidden="true" />}</span><span><strong>{document.title}</strong><small>{status.detail}{linkedEntries.length ? ` · ${linkedEntries.length} Vorkode${linkedEntries.length === 1 ? '' : 's'}` : ''}</small></span>{onOpenDocument && <ArrowRight aria-hidden="true" />}</>
+                  const content = <><span>{document.availability === 'fehlend' ? <FileQuestion aria-hidden="true" /> : <FileCheck2 aria-hidden="true" />}</span><span><strong>{document.title}</strong><small>{status.detail}{linkedEntries.length ? ` · ${linkedEntries.length} Kode${linkedEntries.length === 1 ? '' : 's'}` : ''}</small><small className="document-result-impact">{document.resultImpact}</small></span>{onOpenDocument && <ArrowRight aria-hidden="true" />}</>
                   return onOpenDocument ? <button type="button" key={document.id} onClick={() => onOpenDocument(document)}>{content}</button> : <div key={document.id}>{content}</div>
                 })}
               </div>
@@ -221,6 +301,15 @@ function DocumentHypothesisPanel({ documents, codingEntries, onOpenDocument }: {
       </div>
     </section>
   )
+}
+
+function getDocumentEvidenceStatus(document: DocumentMapItem): { bucket: DocumentEvidenceBucket; detail: string } {
+  const groupingRelevant = document.priority === 'jetzt' || [document.outcomeDimensions.drg, document.outcomeDimensions.ops, document.outcomeDimensions.entgelte].includes('relevant')
+  const reviewed = document.availability === 'vorhanden' && ['grob-geprüft', 'validiert'].includes(document.reviewLevel)
+  if (groupingRelevant && reviewed) return { bucket: 'relevant-checked', detail: document.reviewLevel === 'validiert' ? 'vorhanden · validiert' : 'vorhanden · geprüft' }
+  if (groupingRelevant) return { bucket: 'relevant-action', detail: document.availability === 'fehlend' ? 'fehlt · gruppierungsrelevant' : 'vorhanden · Nachvalidierung nötig' }
+  if (document.availability === 'vorhanden') return { bucket: 'nonrelevant-checked', detail: 'vorhanden · Relevanz geprüft' }
+  return { bucket: 'nonrelevant-missing', detail: 'fehlt · Relevanz geprüft' }
 }
 
 function getDocumentHypothesisStatus(document: DocumentMapItem): { bucket: DocumentHypothesisBucket; detail: string } {

@@ -1,4 +1,5 @@
 import type { AppData, BatchCaseRecord, CodingCase, CodingEntry, DocumentOutcomeDimensions, HospitalProfile, KisGuide, NewCaseInput, OutcomeDimensionStatus, RuleDefinition, TechnicalCaseValue } from '../types'
+import { getDrgLengthOfStayProfile } from './drgCatalog'
 
 const isoNow = () => new Date().toISOString()
 
@@ -328,7 +329,7 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
         { id: 't8', day: 10, time: '08:15', department: 'Onkologie', type: 'Eingriff' as const, label: 'Portimplantation', linkedDocumentIds: [] },
         { id: 't9', day: 11, endDay: 13, time: '10:00', department: 'Onkologie', type: 'Therapie' as const, label: 'Erster Zyklus systemische Tumortherapie', linkedDocumentIds: ['map-oncology-report', 'map-therapy-proof'] },
         { id: 't10', day: 14, time: '09:40', department: 'Onkologie', type: 'Diagnostik' as const, label: 'Therapiekontrolle und Restaging', linkedDocumentIds: ['map-oncology-report'] },
-        { id: 't11', day: 16, time: '12:10', department: 'Onkologie', type: 'Therapie' as const, label: 'Supportive Transfusionstherapie', linkedDocumentIds: ['map-therapy-proof'] },
+        { id: 't11', day: Math.min(16, Math.max(1, input.stayDays - 2)), time: '12:10', department: 'Onkologie', type: 'Therapie' as const, label: 'Supportive Transfusionstherapie', linkedDocumentIds: ['map-therapy-proof'] },
         { id: 't12', day: Math.min(20, input.stayDays - 1), time: '10:00', department: 'Onkologie', type: 'Therapie' as const, label: 'Weiterführung der Tumortherapie', linkedDocumentIds: ['map-therapy-proof', 'map-palliative-proof'] },
         { id: 't13', day: input.stayDays, time: '11:00', department: 'Onkologie', type: 'Entlassung' as const, label: 'Entlassung', linkedDocumentIds: ['map-oncology-report'] },
       ]
@@ -442,7 +443,7 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           reviewLevel: 'nachvalidierung' as const,
           priority: 'jetzt' as const,
           startDay: 11,
-          endDay: 20,
+          endDay: Math.min(20, input.stayDays),
           department: 'Onkologie',
           mapRow: 2,
           reason: 'Gabe, Dosis und Therapieart können OPS, Zusatzentgelt oder NUB verändern.',
@@ -461,7 +462,7 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           reviewLevel: 'nicht-angefordert' as const,
           priority: 'später' as const,
           startDay: 11,
-          endDay: 20,
+          endDay: Math.min(20, input.stayDays),
           department: 'Onkologie',
           mapRow: 3,
           reason: 'Das Strukturmerkmal ist vorhanden. Der aktuelle Verlauf liefert aber noch keinen starken Hinweis auf die Komplexbehandlung.',
@@ -530,6 +531,8 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           serviceDate: admissionDate,
           department: 'Gesamtfall',
           assessedIteration: 1,
+          groupingImpact: 'pfadbestimmend',
+          groupingImpactReason: 'Die Hauptdiagnose bestimmt MDC und führenden DRG-Pfad.',
         },
         {
           id: 'coding-nd-j189',
@@ -546,6 +549,8 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           serviceDate: addDays(admissionDate, 1),
           department: 'Pneumologie',
           assessedIteration: 1,
+          groupingImpact: 'ohne-änderung',
+          groupingImpactReason: 'Die aktuelle Gegenprobe verändert die DRG-Hypothese nicht.',
         },
         {
           id: 'coding-ops-16200',
@@ -562,6 +567,8 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           serviceDate: addDays(admissionDate, 2),
           department: 'Pneumologie',
           assessedIteration: 1,
+          groupingImpact: 'split-relevant',
+          groupingImpactReason: 'Die genaue bronchoskopische Prozedur kann den E71-Split verändern.',
         },
         {
           id: 'coding-ops-854211',
@@ -580,6 +587,8 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           quantity: 1,
           department: 'Onkologie',
           assessedIteration: 1,
+          groupingImpact: 'potenziell',
+          groupingImpactReason: 'Therapieart und Dosis können DRG, Zusatzentgelt oder NUB verändern.',
         },
       ]
     : [
@@ -598,6 +607,8 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           serviceDate: admissionDate,
           department: 'Pneumologie',
           assessedIteration: 1,
+          groupingImpact: 'pfadbestimmend',
+          groupingImpactReason: 'Die Hauptdiagnose bestimmt den pneumologischen DRG-Pfad.',
         },
       ]
 
@@ -765,6 +776,7 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
         reason: 'Vorkodierung mit dem ersten Dokumentenstand gruppiert.',
         changed: false,
         extras: [],
+        lengthOfStay: getDrgLengthOfStayProfile(isComplex ? 'E71B' : 'E77B'),
       },
     ],
     codingEntries,

@@ -70,6 +70,9 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
   const openRequired = codingCase.decisions.filter((decision) => decision.required && decision.status !== 'belegt' && decision.status !== 'ausgeschlossen')
   const openAlternatives = codingCase.decisions.filter((decision) => !decision.required && !['belegt', 'ausgeschlossen'].includes(decision.status))
   const evidenceCount = codingCase.decisions.filter((decision) => decision.status === 'belegt').length
+  const relevantDocumentGaps = codingCase.documentMap.filter((document) => document.kind !== 'vorkodierung' && (
+    document.priority === 'jetzt' || [document.outcomeDimensions.drg, document.outcomeDimensions.ops, document.outcomeDimensions.entgelte].includes('relevant')
+  ) && (document.availability === 'fehlend' || !['grob-geprüft', 'validiert'].includes(document.reviewLevel)))
   const unresolvedTechnical = codingCase.technicalValues.filter((value) => !['bestätigt', 'korrigiert'].includes(value.status))
   const blockingTechnical = unresolvedTechnical.filter((value) => value.groupingRelevant)
   const codingChanges = codingCase.codingEntries.filter((entry) => entry.change !== 'unchanged')
@@ -513,7 +516,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
       <section className="guided-overview" aria-label="Aktueller Fallüberblick">
         <div className="guided-hypothesis"><span>Aktuelle DRG-Hypothese</span><strong>{currentRun.drg}</strong><small>{codingCase.currentMainDiagnosis}</small></div>
         <div className="guided-next"><span>Empfohlene nächste Aktion</span><strong>{nextAction}</strong><button type="button" onClick={() => setActiveStep(recommendedStep)}>Jetzt bearbeiten <ArrowRight aria-hidden="true" /></button></div>
-        <div className="guided-state"><span>Pflichtentscheidungen</span><strong>{openRequired.length} offen</strong><small>Iteration {currentRun.iteration} · {evidenceCount} Nachweise belegt</small></div>
+        <div className="guided-state"><span>Pflichtentscheidungen</span><strong>{openRequired.length} offen</strong><small>Iteration {currentRun.iteration} · {evidenceCount} Nachweise belegt · {relevantDocumentGaps.length} relevante Dokumentlücken</small></div>
       </section>
 
       <TreatmentRibbon codingCase={codingCase} compact onOpenEvent={(eventId) => {
