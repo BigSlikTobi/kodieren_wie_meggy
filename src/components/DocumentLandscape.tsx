@@ -15,13 +15,14 @@ import {
   X,
 } from 'lucide-react'
 import type { CodingCase, CodingEntry, DocumentMapItem, KisGuide, OutcomeDimensionStatus, TreatmentEvent } from '../types'
+import { DocumentEvidenceViewer } from './DocumentEvidenceViewer'
 import { KisSchematic } from './HospitalsView'
 import { EventIcon, formatDay } from './TreatmentRibbon'
 
 interface DocumentLandscapeProps {
   codingCase: CodingCase
   onOpenDecision: (decisionId: string) => void
-  onOpenCollaboration: (mode: 'consult' | 'wiki', decisionId: string) => void
+  onOpenCollaboration: (mode: 'consult' | 'wiki', decisionId: string, documentId?: string) => void
   onConfirmReview: (documentId: string) => void
   onOpenCodingEntry: (documentId: string) => void
   kisGuides: KisGuide[]
@@ -29,6 +30,7 @@ interface DocumentLandscapeProps {
   initialDocumentId?: string
   onUploadEventDocument?: (eventId: string, files: FileList | null) => void
   onUploadCourseDocument?: (eventId: string, files: FileList | null) => void
+  previewUrls?: Record<string, string>
 }
 
 const kindLabels: Record<DocumentMapItem['kind'], string> = {
@@ -49,6 +51,7 @@ export function DocumentLandscape({
   initialDocumentId,
   onUploadEventDocument,
   onUploadCourseDocument,
+  previewUrls = {},
 }: DocumentLandscapeProps) {
   const documents = codingCase.documentMap ?? []
   const eventFromFocus = codingCase.timeline.find((event) => event.id === initialEventId)
@@ -126,6 +129,7 @@ export function DocumentLandscape({
           onOpenCollaboration={onOpenCollaboration}
           onConfirmReview={onConfirmReview}
           onOpenCodingEntry={onOpenCodingEntry}
+          previewUrl={selectedDocument.sourceDocumentId ? previewUrls[selectedDocument.sourceDocumentId] : undefined}
         />
       )}
     </section>
@@ -198,18 +202,20 @@ function DocumentTask({ document, codingCase, onSelect }: { document: DocumentMa
   )
 }
 
-function DocumentDetail({ document, codingCase, kisGuide, onClose, onOpenDecision, onOpenCollaboration, onConfirmReview, onOpenCodingEntry }: {
+function DocumentDetail({ document, codingCase, kisGuide, onClose, onOpenDecision, onOpenCollaboration, onConfirmReview, onOpenCodingEntry, previewUrl }: {
   document: DocumentMapItem
   codingCase: CodingCase
   kisGuide?: KisGuide
   onClose: () => void
   onOpenDecision: (decisionId: string) => void
-  onOpenCollaboration: (mode: 'consult' | 'wiki', decisionId: string) => void
+  onOpenCollaboration: (mode: 'consult' | 'wiki', decisionId: string, documentId?: string) => void
   onConfirmReview: (documentId: string) => void
   onOpenCodingEntry: (documentId: string) => void
+  previewUrl?: string
 }) {
   const status = getDocumentStatus(document)
   const entries = codingCase.codingEntries.filter((entry) => entry.evidenceDocumentId === document.id)
+  const sourceDocument = codingCase.documents.find((item) => item.id === document.sourceDocumentId)
   return (
     <div className="drawer-backdrop" role="presentation" onMouseDown={onClose}>
       <aside className="collaboration-drawer document-detail-drawer" role="dialog" aria-modal="true" aria-labelledby="document-detail-title" onMouseDown={(event) => event.stopPropagation()}>
@@ -218,6 +224,8 @@ function DocumentDetail({ document, codingCase, kisGuide, onClose, onOpenDecisio
           <button className="icon-button" type="button" aria-label="Schließen" onClick={onClose}><X aria-hidden="true" /></button>
         </div>
         <div className="document-detail-status"><span className={`status-pill ${status.className}`}>{status.label}</span><span>Bewertet in Iteration {document.assessedIteration}</span></div>
+
+        {document.availability === 'vorhanden' && <DocumentEvidenceViewer document={document} source={sourceDocument} previewUrl={previewUrl} />}
 
         <section className="document-coding-section" aria-labelledby="document-coding-title">
           <div className="document-coding-head">
@@ -258,7 +266,7 @@ function DocumentDetail({ document, codingCase, kisGuide, onClose, onOpenDecisio
           <summary><span><Monitor aria-hidden="true" /><span><strong>Wo finde ich das im KIS?</strong><small>Hausbezogene Orientierung</small></span></span><ChevronDown aria-hidden="true" /></summary>
           {kisGuide ? <div className="kis-inline-content"><div className="kis-path">{kisGuide.navigationPath.map((step) => <span key={step}>{step}</span>)}</div><dl className="document-detail-list"><div><dt>Modul</dt><dd>{kisGuide.module}</dd></div><div><dt>Suchbegriff</dt><dd>{kisGuide.searchTerm || 'Keiner'}</dd></div><div><dt>So geht es</dt><dd>{kisGuide.instruction}</dd></div><div><dt>Hausbesonderheit</dt><dd>{kisGuide.notes}</dd></div></dl>{kisGuide.screenshots[0] && <div className="kis-inline-screen"><KisSchematic /><span><strong>{kisGuide.screenshots[0].fileName}</strong><small>{kisGuide.screenshots[0].caption}</small></span></div>}</div> : <p className="kis-missing-guide">Für diese Dokumentart ist noch kein Fundort hinterlegt.</p>}
         </details>
-        {document.linkedDecisionId && <div className="document-detail-actions"><button className="button secondary full" type="button" onClick={() => onOpenDecision(document.linkedDecisionId!)}>{document.availability === 'fehlend' ? <Upload aria-hidden="true" /> : <FileCheck2 aria-hidden="true" />} Prüfentscheidung öffnen</button><div><button className="button secondary" type="button" onClick={() => onOpenCollaboration('wiki', document.linkedDecisionId!)}><MessageCircle aria-hidden="true" /> Wiki fragen</button><button className="button secondary" type="button" onClick={() => onOpenCollaboration('consult', document.linkedDecisionId!)}><Stethoscope aria-hidden="true" /> Kodierkonsil</button></div></div>}
+        {document.linkedDecisionId && <div className="document-detail-actions"><button className="button secondary full" type="button" onClick={() => onOpenDecision(document.linkedDecisionId!)}>{document.availability === 'fehlend' ? <Upload aria-hidden="true" /> : <FileCheck2 aria-hidden="true" />} Prüfentscheidung öffnen</button><div><button className="button secondary" type="button" onClick={() => onOpenCollaboration('wiki', document.linkedDecisionId!, document.id)}><MessageCircle aria-hidden="true" /> Wiki fragen</button><button className="button secondary" type="button" onClick={() => onOpenCollaboration('consult', document.linkedDecisionId!, document.id)}><Stethoscope aria-hidden="true" /> Kodierkonsil</button></div></div>}
         <div className="document-iteration-note"><CalendarDays aria-hidden="true" /><span>Ändert sich die DRG-Hypothese, wird dieses Dokument neu eingeordnet.</span></div>
       </aside>
     </div>

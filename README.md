@@ -25,7 +25,7 @@ Der besondere Test-Runner umgeht ein lokales Werkzeugproblem mit dem Doppelpunkt
 ## Grenzen des Prototyps
 
 - Alle medizinischen Kodes und Grouper-Ergebnisse sind illustrative Demodaten.
-- Uploads speichern nur Dateiname und Typ im Browser.
+- Uploads bleiben lokale Browserdaten. Textdateien können direkt gelesen werden; für PDF- und Bild-Uploads zeigt der Prototyp zusätzlich eine illustrative LLM-Textansicht mit markierten Belegstellen.
 - Der Grouper wird über eine austauschbare Mock-Schnittstelle simuliert.
 - Es gibt kein Backend, keine Benutzerverwaltung und keine KIS-Anbindung.
 - Lokale Daten können oben rechts vollständig zurückgesetzt werden.

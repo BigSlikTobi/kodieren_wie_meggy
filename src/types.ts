@@ -105,6 +105,9 @@ export interface CaseDocument {
   addedAt: string
   status: 'ausgewertet' | 'wird geprüft'
   supports?: string
+  mimeType?: string
+  previewText?: string
+  previewLabel?: string
 }
 
 export type DocumentMapKind = 'verlaufsbericht' | 'ereignisbericht' | 'nachweis' | 'vorkodierung'
@@ -139,6 +142,7 @@ export interface DocumentMapItem {
   outcomeDimensions: DocumentOutcomeDimensions
   assessedIteration: number
   linkedDecisionId?: string
+  sourceDocumentId?: string
 }
 
 export interface CaseDecision {
@@ -247,6 +251,7 @@ export interface CodingConsultation {
   createdAt: string
   result?: 'bestätigt' | 'geändert' | 'weiter ungeklärt'
   finding?: string
+  evidenceDocumentIds?: string[]
 }
 
 export interface WikiMessage {
@@ -262,6 +267,7 @@ export interface WikiThread {
   title: string
   messages: WikiMessage[]
   createdAt: string
+  evidenceDocumentIds?: string[]
 }
 
 export type MbegStatus = 'entwurf-belegbar' | 'nachweis-fehlt' | 'fachprüfung' | 'kein-bedarf' | 'nicht-belastbar'
@@ -311,7 +317,8 @@ export interface CodingCase {
   scenario: 'pulmo-onko' | 'standard'
   intakeConfirmed: boolean
   intakeSources: IntakeSource[]
-  status: 'offen' | 'abgeschlossen'
+  status: 'offen' | 'tool-geprüft' | 'abgeschlossen'
+  kisTransferConfirmedAt?: string
   currentMainDiagnosis: string
   currentProcedures: string[]
   timeline: TreatmentEvent[]

@@ -5,6 +5,7 @@ import {
   BookOpenCheck,
   Building2,
   Check,
+  CheckCircle2,
   ChevronDown,
   CircleDot,
   Database,
@@ -59,8 +60,8 @@ interface IterationFeedback {
 export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange, onNewCase }: CaseCockpitProps) {
   const [activeDecision, setActiveDecision] = useState<string | undefined>(codingCase.decisions[0]?.id)
   const [runningDecision, setRunningDecision] = useState<string>()
-  const [finalOpen, setFinalOpen] = useState(codingCase.status === 'abgeschlossen')
-  const [collaboration, setCollaboration] = useState<{ mode: 'consult' | 'wiki'; decisionId: string }>()
+  const [finalOpen, setFinalOpen] = useState(codingCase.status !== 'offen')
+  const [collaboration, setCollaboration] = useState<{ mode: 'consult' | 'wiki'; decisionId: string; documentId?: string }>()
   const [mbegOpen, setMbegOpen] = useState(false)
   const [activeStep, setActiveStep] = useState(0)
   const [documentMapOpen, setDocumentMapOpen] = useState(false)
@@ -71,6 +72,9 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
   const [grouperInputsOpen, setGrouperInputsOpen] = useState(false)
   const [directCodingDecisionId, setDirectCodingDecisionId] = useState<string>()
   const [iterationFeedback, setIterationFeedback] = useState<IterationFeedback>()
+  const [documentPreviewUrls, setDocumentPreviewUrls] = useState<Record<string, string>>({})
+  const [kisCodingConfirmed, setKisCodingConfirmed] = useState(codingCase.status === 'abgeschlossen')
+  const [kisGrouperConfirmed, setKisGrouperConfirmed] = useState(codingCase.status === 'abgeschlossen')
 
   useEffect(() => {
     window.scrollTo({ top: 0 })
@@ -159,6 +163,9 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
   }
 
   const createConsultation = (decisionId: string, input: Pick<CodingConsultation, 'specialty' | 'question' | 'expert' | 'priority'>) => {
+    const evidenceDocumentIds = codingCase.documentMap
+      .filter((document) => document.linkedDecisionId === decisionId && document.availability === 'vorhanden')
+      .map((document) => document.sourceDocumentId ?? document.id)
     mutateCase({
       ...codingCase,
       consultations: [
@@ -167,6 +174,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
           id: `consult-${Date.now()}`,
           decisionId,
           ...input,
+          evidenceDocumentIds,
           status: 'angefragt',
           createdAt: new Date().toISOString(),
         },
@@ -205,16 +213,20 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
       createdAt: now,
     }
     const existing = codingCase.wikiThreads.find((thread) => thread.decisionId === decisionId)
+    const evidenceDocumentIds = codingCase.documentMap
+      .filter((document) => document.linkedDecisionId === decisionId && document.availability === 'vorhanden')
+      .map((document) => document.sourceDocumentId ?? document.id)
     mutateCase({
       ...codingCase,
       wikiThreads: existing
-        ? codingCase.wikiThreads.map((thread) => thread.id === existing.id ? { ...thread, messages: [...thread.messages, userMessage, assistantMessage] } : thread)
+        ? codingCase.wikiThreads.map((thread) => thread.id === existing.id ? { ...thread, messages: [...thread.messages, userMessage, assistantMessage], evidenceDocumentIds: [...new Set([...(thread.evidenceDocumentIds ?? []), ...evidenceDocumentIds])] } : thread)
         : [...codingCase.wikiThreads, {
             id: `wiki-${Date.now()}`,
             decisionId,
             title: codingCase.decisions.find((decision) => decision.id === decisionId)?.title ?? 'Wissensfrage',
             messages: [userMessage, assistantMessage],
             createdAt: now,
+            evidenceDocumentIds,
           }],
     })
   }
@@ -241,18 +253,26 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
     setRunningDecision(undefined)
   }
 
-  const resolveDecision = async (decisionId: string, mode: 'belegt' | 'ausgeschlossen', fileName?: string) => {
+  const resolveDecision = async (decisionId: string, mode: 'belegt' | 'ausgeschlossen', file?: File) => {
     setRunningDecision(decisionId)
     const decision = codingCase.decisions.find((item) => item.id === decisionId)
     if (!decision) return
+    const sourceDocumentId = `doc-${Date.now()}`
+    const previewText = file ? await createUploadedDocumentPreview(file, decision.title, decision.requestedDocument) : undefined
+    if (file && typeof URL.createObjectURL === 'function') {
+      setDocumentPreviewUrls((current) => ({ ...current, [sourceDocumentId]: URL.createObjectURL(file) }))
+    }
     const document = mode === 'belegt'
       ? {
-          id: `doc-${Date.now()}`,
-          name: fileName || `${decision.requestedDocument.toLowerCase().replaceAll(' ', '_')}.pdf`,
-          kind: fileName?.split('.').pop()?.toUpperCase() || 'PDF',
+          id: sourceDocumentId,
+          name: file?.name || `${decision.requestedDocument.toLowerCase().replaceAll(' ', '_')}.pdf`,
+          kind: file?.name.split('.').pop()?.toUpperCase() || 'PDF',
           addedAt: new Date().toISOString(),
           status: 'ausgewertet' as const,
           supports: decision.title,
+          mimeType: file?.type || 'application/pdf',
+          previewText,
+          previewLabel: 'LLM-Textansicht des hochgeladenen Nachweises',
         }
       : undefined
     const updatedCase: CodingCase = {
@@ -260,7 +280,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
       documents: document ? [...codingCase.documents, document] : codingCase.documents,
       documentMap: codingCase.documentMap.map((item) => item.linkedDecisionId === decisionId && item.availability === 'fehlend'
         ? mode === 'belegt'
-          ? { ...item, availability: 'vorhanden', relevance: 'stimmig', reviewLevel: 'validiert', priority: 'erledigt' }
+          ? { ...item, availability: 'vorhanden', relevance: 'stimmig', reviewLevel: 'validiert', priority: 'erledigt', sourceDocumentId }
           : { ...item, relevance: 'neutral', reviewLevel: 'nicht-angefordert', priority: 'erledigt' }
         : item),
       decisions: codingCase.decisions.map((item) => item.id === decisionId
@@ -280,7 +300,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
 
   const handleEvidenceUpload = (decisionId: string, files: FileList | null) => {
     const file = files?.[0]
-    void resolveDecision(decisionId, 'belegt', file?.name)
+    if (file) void resolveDecision(decisionId, 'belegt', file)
   }
 
   const handleContextDocumentUpload = async (eventId: string, files: FileList | null, scope: 'event' | 'course') => {
@@ -295,6 +315,11 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
       ?? linkedDocuments.find((document) => document.availability === 'fehlend')
       ?? linkedDocuments[0]
     const documentId = targetDocument?.id ?? `doc-map-upload-${Date.now()}`
+    const sourceDocumentId = `source-document-${Date.now()}`
+    const previewText = await createUploadedDocumentPreview(file, treatmentEvent.label, scope === 'event' ? 'Ereignisbericht' : `Verlauf ${treatmentEvent.department}`)
+    if (typeof URL.createObjectURL === 'function') {
+      setDocumentPreviewUrls((current) => ({ ...current, [sourceDocumentId]: URL.createObjectURL(file) }))
+    }
     const linkedDecisionId = targetDocument?.linkedDecisionId ?? firstOpenDecision?.id
     const departmentEvents = codingCase.timeline.filter((event) => event.department === treatmentEvent.department)
     const courseStart = Math.min(...departmentEvents.map((event) => event.day))
@@ -309,6 +334,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
       codingNote: 'LLM-Zuordnung vorbereitet. Erkannte ICD- und OPS-Vorschläge müssen fachlich bestätigt werden.',
       resultImpact: 'Kodierwirkung und Grouperpfad werden nach der fachlichen Kodeprüfung neu bewertet.',
       linkedDecisionId,
+      sourceDocumentId,
     } : {
       id: documentId,
       title: file.name,
@@ -327,16 +353,20 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
       outcomeDimensions: { drg: 'offen', ops: 'offen', entgelte: 'neutral', kodierung: 'offen', mbeg: 'neutral' },
       assessedIteration: currentRun.iteration,
       linkedDecisionId,
+      sourceDocumentId,
     }
     const updatedCase: CodingCase = {
       ...codingCase,
       documents: [...codingCase.documents, {
-        id: `source-document-${Date.now()}`,
+        id: sourceDocumentId,
         name: file.name,
         kind: file.name.split('.').pop()?.toUpperCase() || 'Dokument',
         addedAt: new Date().toISOString(),
         status: 'wird geprüft',
         supports: scope === 'event' ? treatmentEvent.label : `Verlauf ${treatmentEvent.department}`,
+        mimeType: file.type || 'application/octet-stream',
+        previewText,
+        previewLabel: file.type.startsWith('text/') ? 'Originaltext des Uploads' : 'LLM-Textansicht des hochgeladenen Dokuments',
       }],
       documentMap: targetDocument
         ? codingCase.documentMap.map((document) => document.id === targetDocument.id ? uploadedMapItem : document)
@@ -365,9 +395,14 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
 
   const finalize = () => {
     if (openRequired.length > 0 || blockingTechnical.length > 0) return
-    const next = { ...codingCase, status: 'abgeschlossen' as const }
+    const next = { ...codingCase, status: 'tool-geprüft' as const }
     mutateCase(next)
     setFinalOpen(true)
+  }
+
+  const confirmKisTransfer = () => {
+    if (!kisCodingConfirmed || !kisGrouperConfirmed) return
+    mutateCase({ ...codingCase, status: 'abgeschlossen', kisTransferConfirmedAt: new Date().toISOString() })
   }
 
   const reviewMbeg = () => {
@@ -649,7 +684,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
         {!firstOpenDecision && !finalOpen && <section className="workflow-ready-next"><span><Check aria-hidden="true" /></span><div><small>Keine weitere Pflichtprüfung</small><strong>DRG-Hypothese jetzt formal plausibilisieren</strong><p>{openAlternatives.length ? `${openAlternatives.length} optionale Pfade bleiben nachgeordnet und werden nur bei neuen Hinweisen geöffnet.` : 'Die ergebnisrelevanten Belegprüfungen sind abgeschlossen.'}</p></div><button className="button primary" type="button" onClick={() => setActiveStep(4)}>Zur Regelprüfung <ArrowRight aria-hidden="true" /></button></section>}
       </>}
 
-      {documentMapOpen && <div className="fullscreen-backdrop" role="presentation" onMouseDown={() => setDocumentMapOpen(false)}><section className="fullscreen-detail" role="dialog" aria-modal="true" aria-label="Dokumentenlandkarte" onMouseDown={(event) => event.stopPropagation()}><div className="fullscreen-header"><div><div className="page-kicker">Dokumente · {codingCase.caseNumber}</div><h2>Dokumentenlandkarte</h2></div><button className="icon-button" type="button" aria-label="Schließen" onClick={() => setDocumentMapOpen(false)}><X aria-hidden="true" /></button></div><DocumentLandscape codingCase={codingCase} initialEventId={documentMapFocus.eventId} initialDocumentId={documentMapFocus.documentId} onOpenDecision={(decisionId) => { openDecisionStep(decisionId); setDocumentMapOpen(false) }} onOpenCollaboration={(mode, decisionId) => setCollaboration({ mode, decisionId })} onConfirmReview={(documentId) => void confirmDocumentReview(documentId)} onOpenCodingEntry={setCodingEditorDocumentId} onUploadEventDocument={(eventId, files) => void handleContextDocumentUpload(eventId, files, 'event')} onUploadCourseDocument={(eventId, files) => void handleContextDocumentUpload(eventId, files, 'course')} kisGuides={profile?.kisGuides ?? []} /></section></div>}
+      {documentMapOpen && <div className="fullscreen-backdrop" role="presentation" onMouseDown={() => setDocumentMapOpen(false)}><section className="fullscreen-detail" role="dialog" aria-modal="true" aria-label="Dokumentenlandkarte" onMouseDown={(event) => event.stopPropagation()}><div className="fullscreen-header"><div><div className="page-kicker">Dokumente · {codingCase.caseNumber}</div><h2>Dokumentenlandkarte</h2></div><button className="icon-button" type="button" aria-label="Schließen" onClick={() => setDocumentMapOpen(false)}><X aria-hidden="true" /></button></div><DocumentLandscape codingCase={codingCase} initialEventId={documentMapFocus.eventId} initialDocumentId={documentMapFocus.documentId} onOpenDecision={(decisionId) => { openDecisionStep(decisionId); setDocumentMapOpen(false) }} onOpenCollaboration={(mode, decisionId, documentId) => setCollaboration({ mode, decisionId, documentId })} onConfirmReview={(documentId) => void confirmDocumentReview(documentId)} onOpenCodingEntry={setCodingEditorDocumentId} onUploadEventDocument={(eventId, files) => void handleContextDocumentUpload(eventId, files, 'event')} onUploadCourseDocument={(eventId, files) => void handleContextDocumentUpload(eventId, files, 'course')} kisGuides={profile?.kisGuides ?? []} previewUrls={documentPreviewUrls} /></section></div>}
 
       <section className="validation-stage guided-step" aria-labelledby="validation-title" hidden={activeStep !== 1}>
         <div className="section-title-row">
@@ -808,7 +843,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
         <button className="button primary" type="button" disabled={openRequired.length > 0 || blockingTechnical.length > 0} onClick={finalize}>Prüfung abschließen <ArrowRight aria-hidden="true" /></button>
       </section>}
 
-      {finalOpen && (
+      {finalOpen && codingCase.status !== 'abgeschlossen' && (
         <section className="final-proposal final-kis-handoff" aria-labelledby="final-title">
           <div className="section-title-row"><div><div className="page-kicker">Toolprüfung abgeschlossen · Primärsystem offen</div><h2 id="final-title">Prüfung abgeschlossen – KIS-Übernahme ausstehend</h2></div><span className="status-pill status-wahrscheinlich">KIS offen</span></div>
           <div className="final-kis-result">
@@ -826,12 +861,27 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
             <button className="button secondary" type="button" onClick={() => setGrouperInputsOpen(true)}><Database aria-hidden="true" /> Grouper-Eingaben vergleichen</button>
           </div>
           <div className="no-interface-warning"><Info aria-hidden="true" /><span><strong>Keine Schnittstelle zum Primärsystem.</strong><small>Der Fall ist im Tool geprüft, aber erst nach der manuellen Übertragung und Gruppierung im KIS operativ abgeschlossen.</small></span></div>
+          <section className="kis-final-confirmation" aria-labelledby="kis-final-confirmation-title">
+            <div className="kis-final-confirmation-head"><span><CheckCircle2 aria-hidden="true" /></span><div><small>Letzter Schritt im Tool</small><h3 id="kis-final-confirmation-title">KIS-Übernahme bestätigen</h3><p>Erst danach wird der Fall auch in diesem Arbeitsplatz als abgeschlossen markiert.</p></div></div>
+            <div className="kis-confirmation-checks">
+              <label><input type="checkbox" checked={kisCodingConfirmed} onChange={(event) => setKisCodingConfirmed(event.target.checked)} /><span><strong>Kodierung im KIS übernommen</strong><small>HD, ND, OPS und technische Werte wurden eingetragen oder abgeglichen.</small></span></label>
+              <label><input type="checkbox" checked={kisGrouperConfirmed} onChange={(event) => setKisGrouperConfirmed(event.target.checked)} /><span><strong>Groupergebnis im KIS geprüft</strong><small>Das Primärsystem zeigt {currentRun.drg} und die erwarteten Entgelte.</small></span></label>
+            </div>
+            <button className="button primary full" type="button" disabled={!kisCodingConfirmed || !kisGrouperConfirmed} onClick={confirmKisTransfer}><Check aria-hidden="true" /> KIS-Übernahme bestätigen und Fall abschließen</button>
+          </section>
           {openAlternatives.length > 0 && <div className="inline-note"><Info aria-hidden="true" /><span>Dokumentierte Restunsicherheiten: {openAlternatives.map((item) => item.title).join('; ')}.</span></div>}
           <details className="final-mbeg">
             <summary><span><ShieldCheck aria-hidden="true" /><span><strong>Medizinische Begründung vollstationär</strong><small>{codingCase.medicalJustification.reviewed ? 'Fachlich geprüft und optional weiterleitbar' : 'Optional anzeigen und fachlich prüfen'}</small></span></span><ChevronDown aria-hidden="true" /></summary>
             <div><p>{codingCase.medicalJustification.draft}</p><button className="button secondary" type="button" onClick={() => setMbegOpen(true)}>Begründung und Belege öffnen <ArrowRight aria-hidden="true" /></button></div>
           </details>
           <p className="demo-disclaimer">Dieser Vorschlag nutzt illustrative Demodaten und ist nicht zur Abrechnung bestimmt.</p>
+        </section>
+      )}
+      {finalOpen && codingCase.status === 'abgeschlossen' && (
+        <section className="final-proposal kis-case-complete" aria-labelledby="kis-case-complete-title">
+          <span className="kis-complete-icon"><CheckCircle2 aria-hidden="true" /></span>
+          <div><div className="page-kicker">KIS-Übernahme bestätigt</div><h2 id="kis-case-complete-title">Fall sicher abgeschlossen.</h2><p>Die Kodierung wurde im KIS übernommen und das dortige Groupergebnis mit {currentRun.drg} abgeglichen.</p><small>{codingCase.kisTransferConfirmedAt ? `Bestätigt am ${new Date(codingCase.kisTransferConfirmedAt).toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' })}` : 'Bestätigung dokumentiert'} · Fall {codingCase.caseNumber}</small></div>
+          <div className="kis-complete-actions"><button className="button secondary" type="button" onClick={() => setCodingTransferOpen(true)}><FileOutput aria-hidden="true" /> Kodierergebnis ansehen</button><button className="button primary" type="button" onClick={onNewCase}>Nächsten Fall auswählen <ArrowRight aria-hidden="true" /></button></div>
         </section>
       )}
       </div>
@@ -868,6 +918,8 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
             onCompleteConsultation={(consultationId, result, finding) => void completeConsultation(consultationId, result, finding)}
             onSendWikiMessage={(text) => sendWikiMessage(decision.id, text)}
             onOpenCoding={() => { setCollaboration(undefined); setDirectCodingDecisionId(decision.id) }}
+            focusDocumentId={collaboration.documentId}
+            previewUrls={documentPreviewUrls}
           />
         ) : null
       })()}
@@ -886,6 +938,21 @@ function getDecisionCodingEntries(entries: CodingEntry[], decisionId: string, de
     return false
   })
   return [...new Map([...contextual, ...matches].map((entry) => [entry.id, entry])).values()]
+}
+
+async function createUploadedDocumentPreview(file: File, clinicalContext: string, documentContext: string) {
+  if (file.type.startsWith('text/') || /\.(txt|csv|md)$/i.test(file.name)) {
+    const originalText = (await file.text()).trim()
+    if (originalText) return originalText.slice(0, 18000)
+  }
+  return [
+    `${documentContext}: ${file.name}`,
+    `Aufnahmegrund und Behandlungsbezug: ${clinicalContext}.`,
+    'Dokumentierter Verlauf: Die medizinisch führenden Maßnahmen und relevanten Befunde wurden für den stationären Aufenthalt zusammengeführt.',
+    `Kodierrelevante Aussage: Die Hauptdiagnose und die durchgeführten Prozeduren sind mit Datum, Fachabteilung und klinischem Kontext gegen die Ausgangskodierung zu prüfen.`,
+    'Entlassung und Weiterbehandlung: Der dokumentierte Abschluss des Aufenthalts ist mit der aktuellen DRG-Hypothese abzugleichen.',
+    'Hinweis zum Prototyp: Bei PDF- und Bilddateien wird hier die simulierte LLM-Textextraktion angezeigt. Über „Original“ bleibt der hochgeladene Inhalt in dieser Sitzung zusätzlich einsehbar.',
+  ].join('\n\n')
 }
 
 function getCollaborationRoute(decision: CaseDecision): { kind: 'self' | 'wiki' | 'consult'; title: string; reason: string } {

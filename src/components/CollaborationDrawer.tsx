@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { BookOpen, Check, FileCode2, FileText, Send, ShieldAlert, Stethoscope, Users, X } from 'lucide-react'
 import type { CaseDecision, CodingCase, CodingConsultation, WikiThread } from '../types'
+import { DocumentEvidenceViewer } from './DocumentEvidenceViewer'
 
 interface SharedContextSection {
   label: string
@@ -16,6 +17,8 @@ interface CollaborationDrawerProps {
   onCompleteConsultation: (consultationId: string, result: NonNullable<CodingConsultation['result']>, finding: string) => void
   onSendWikiMessage: (text: string) => void
   onOpenCoding: () => void
+  focusDocumentId?: string
+  previewUrls?: Record<string, string>
 }
 
 const specialties = ['Unfallchirurgie', 'Herzchirurgie', 'Intensivmedizin', 'Onkologie', 'Nephrologie', 'Pneumologie']
@@ -29,7 +32,14 @@ export function CollaborationDrawer({
   onCompleteConsultation,
   onSendWikiMessage,
   onOpenCoding,
+  focusDocumentId,
+  previewUrls = {},
 }: CollaborationDrawerProps) {
+  const evidenceDocuments = codingCase.documentMap.filter((item) => item.linkedDecisionId === decision.id && item.availability === 'vorhanden')
+  const initialEvidenceDocument = evidenceDocuments.find((item) => item.id === focusDocumentId) ?? evidenceDocuments.find((item) => item.priority === 'jetzt') ?? evidenceDocuments[0]
+  const [selectedDocumentId, setSelectedDocumentId] = useState(initialEvidenceDocument?.id)
+  const selectedDocument = evidenceDocuments.find((item) => item.id === selectedDocumentId) ?? initialEvidenceDocument
+  const sourceDocument = codingCase.documents.find((item) => item.id === selectedDocument?.sourceDocumentId)
   const [specialty, setSpecialty] = useState(decision.title.includes('Tumor') ? 'Onkologie' : 'Pneumologie')
   const [expert, setExpert] = useState('Nächster verfügbarer Fachexperte')
   const [priority, setPriority] = useState<CodingConsultation['priority']>('normal')
@@ -37,6 +47,7 @@ export function CollaborationDrawer({
   const [result, setResult] = useState<NonNullable<CodingConsultation['result']>>('bestätigt')
   const [finding, setFinding] = useState('Die vorliegende Dokumentation und der Behandlungspfad stützen die aktuelle Hypothese.')
   const [message, setMessage] = useState('')
+  const [evidenceReviewed, setEvidenceReviewed] = useState(false)
 
   const consultation = codingCase.consultations.find((item) => item.decisionId === decision.id && item.status !== 'abgeschlossen')
     ?? codingCase.consultations.find((item) => item.decisionId === decision.id)
@@ -87,6 +98,16 @@ export function CollaborationDrawer({
           <p>{decision.description}</p>
         </section>
 
+        {selectedDocument && (
+          <section className="collaboration-evidence" aria-labelledby="collaboration-evidence-title">
+            <div className="collaboration-evidence-head">
+              <span><small>Gemeinsame Prüfgrundlage</small><strong id="collaboration-evidence-title">Empfehlung und Dokumentation nebeneinander</strong></span>
+              {evidenceDocuments.length > 1 && <select aria-label="Dokumentgrundlage auswählen" value={selectedDocument.id} onChange={(event) => { setSelectedDocumentId(event.target.value); setEvidenceReviewed(false) }}>{evidenceDocuments.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select>}
+            </div>
+            <DocumentEvidenceViewer document={selectedDocument} source={sourceDocument} previewUrl={sourceDocument ? previewUrls[sourceDocument.id] : undefined} compact />
+          </section>
+        )}
+
         {mode === 'consult' ? (
           consultation ? (
             <ConsultationResult
@@ -96,6 +117,9 @@ export function CollaborationDrawer({
               finding={finding}
               setResult={setResult}
               setFinding={setFinding}
+              evidenceReviewed={evidenceReviewed}
+              setEvidenceReviewed={setEvidenceReviewed}
+              hasEvidence={Boolean(selectedDocument)}
               onComplete={onCompleteConsultation}
               onOpenCoding={onOpenCoding}
             />
@@ -115,7 +139,7 @@ export function CollaborationDrawer({
             </form>
           )
         ) : (
-          <WikiChat thread={thread} decision={decision} message={message} setMessage={setMessage} onSend={onSendWikiMessage} onOpenCoding={onOpenCoding} />
+          <WikiChat thread={thread} decision={decision} message={message} setMessage={setMessage} onSend={onSendWikiMessage} onOpenCoding={onOpenCoding} evidenceReviewed={evidenceReviewed} setEvidenceReviewed={setEvidenceReviewed} hasEvidence={Boolean(selectedDocument)} />
         )}
       </aside>
     </div>
@@ -129,6 +153,9 @@ function ConsultationResult({
   finding,
   setResult,
   setFinding,
+  evidenceReviewed,
+  setEvidenceReviewed,
+  hasEvidence,
   onComplete,
   onOpenCoding,
 }: {
@@ -138,6 +165,9 @@ function ConsultationResult({
   finding: string
   setResult: (value: NonNullable<CodingConsultation['result']>) => void
   setFinding: (value: string) => void
+  evidenceReviewed: boolean
+  setEvidenceReviewed: (value: boolean) => void
+  hasEvidence: boolean
   onComplete: (id: string, result: NonNullable<CodingConsultation['result']>, finding: string) => void
   onOpenCoding: () => void
 }) {
@@ -148,7 +178,8 @@ function ConsultationResult({
         <h3>Konsil abgeschlossen: {consultation.result}</h3>
         <p>{consultation.finding}</p>
         <small>{consultation.specialty} · {consultation.expert}</small>
-        <button className="button primary" type="button" onClick={onOpenCoding}><FileCode2 aria-hidden="true" /> Konsilergebnis in Kodierung übernehmen</button>
+        <label className="recommendation-review-check"><input type="checkbox" checked={evidenceReviewed} onChange={(event) => setEvidenceReviewed(event.target.checked)} /><span><strong>Empfehlung mit Dokumentation geprüft</strong><small>{hasEvidence ? 'Kodierempfehlung und markierte Belegstellen stimmen fachlich überein.' : 'Kodierempfehlung wurde trotz fehlender Dokumentansicht bewusst geprüft.'}</small></span></label>
+        <button className="button primary" type="button" disabled={!evidenceReviewed} onClick={onOpenCoding}><FileCode2 aria-hidden="true" /> Konsilergebnis in Kodierung übernehmen</button>
       </div>
     )
   }
@@ -185,6 +216,9 @@ function WikiChat({
   setMessage,
   onSend,
   onOpenCoding,
+  evidenceReviewed,
+  setEvidenceReviewed,
+  hasEvidence,
 }: {
   thread?: WikiThread
   decision: CaseDecision
@@ -192,6 +226,9 @@ function WikiChat({
   setMessage: (value: string) => void
   onSend: (value: string) => void
   onOpenCoding: () => void
+  evidenceReviewed: boolean
+  setEvidenceReviewed: (value: boolean) => void
+  hasEvidence: boolean
 }) {
   const send = () => {
     if (!message.trim()) return
@@ -211,7 +248,8 @@ function WikiChat({
         <textarea id="wiki-message" rows={3} placeholder="Grundlagenfrage stellen …" value={message} onChange={(event) => setMessage(event.target.value)} />
         <button className="button primary" type="button" disabled={!message.trim()} onClick={send}><Send aria-hidden="true" /> Senden</button>
       </div>
-      <button className="button secondary full" type="button" disabled={!thread?.messages.length} onClick={onOpenCoding}><FileCode2 aria-hidden="true" /> Wiki-Ergebnis in Kodierung übernehmen</button>
+      {Boolean(thread?.messages.length) && <div className="wiki-recommendation-review"><span><small>Kodierempfehlung</small><strong>Regelhinweis am Dokument prüfen</strong><p>Der Wiki-Hinweis unterstützt die Einordnung. Die fachliche Fallentscheidung bleibt bei der Kodierfachkraft.</p></span><label className="recommendation-review-check"><input type="checkbox" checked={evidenceReviewed} onChange={(event) => setEvidenceReviewed(event.target.checked)} /><span><strong>Hinweis und Dokumentation geprüft</strong><small>{hasEvidence ? 'Die markierten Belegstellen wurden mit dem Regelhinweis abgeglichen.' : 'Der fehlende Dokumentbezug wurde bewusst berücksichtigt.'}</small></span></label></div>}
+      <button className="button secondary full" type="button" disabled={!thread?.messages.length || !evidenceReviewed} onClick={onOpenCoding}><FileCode2 aria-hidden="true" /> Zur Kodierentscheidung</button>
     </div>
   )
 }
