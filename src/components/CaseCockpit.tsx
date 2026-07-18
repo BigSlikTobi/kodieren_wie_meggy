@@ -25,6 +25,7 @@ import {
 } from 'lucide-react'
 import type { GrouperClient } from '../services/grouper'
 import type { AppData, CaseDecision, CodingCase, CodingConsultation, CodingEntry, DocumentMapItem, HospitalProfile, TechnicalCaseValue } from '../types'
+import { CaseJourney } from './CaseJourney'
 import { CollaborationDrawer } from './CollaborationDrawer'
 import { CodingEntryDrawer, type CodingEntryInput } from './CodingEntryDrawer'
 import { CodingTransferDrawer } from './CodingTransferDrawer'
@@ -578,6 +579,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
 
   return (
     <div className="page cockpit-page">
+      <CaseJourney active={finalOpen ? 'handoff' : 'hypothesis'} />
       <div className="case-title-row">
         <div>
           <div className="page-kicker">Fall {codingCase.caseNumber} · illustrative Demodaten</div>
@@ -590,7 +592,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
             <button type="button" disabled={!firstOpenDecision} onClick={() => firstOpenDecision && setCollaboration({ mode: 'wiki', decisionId: firstOpenDecision.id })}><MessageCircle aria-hidden="true" /> Kodierwiki · {codingCase.wikiThreads.length}</button>
           </div>
           <div className="case-primary-actions">
-            <button className="button primary" type="button" onClick={() => setCodingTransferOpen(true)}><FileOutput aria-hidden="true" /> KIS-Übergabe</button>
+            <button className={`button ${finalOpen ? 'primary' : 'secondary'}`} type="button" onClick={() => finalOpen ? setCodingTransferOpen(true) : setGrouperInputsOpen(true)}><FileOutput aria-hidden="true" /> {finalOpen ? 'KIS-Änderungsliste' : 'KIS-Ausgangsdaten'}</button>
             <button className="button secondary" type="button" onClick={onNewCase}><Plus aria-hidden="true" /> Fall wechseln</button>
           </div>
         </div>

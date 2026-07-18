@@ -1,6 +1,7 @@
 import { ArrowRight, Building2, CalendarDays, Database, FilePlus2, Search, Stethoscope } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { BatchCaseRecord, HospitalProfile } from '../types'
+import { CaseJourney } from './CaseJourney'
 
 interface CasePoolProps {
   cases: BatchCaseRecord[]
@@ -19,6 +20,7 @@ export function CasePool({ cases, hospitals, onOpen, onCreate }: CasePoolProps) 
 
   return (
     <div className="page case-pool-page">
+      <CaseJourney active="kis" />
       <div className="pool-heading">
         <div><div className="page-kicker">Fallpool · pseudonymisierte Demodaten</div><h1>Welchen Fall bearbeitest Du?</h1><p className="lead">Die Zuweisung bleibt in der bestehenden Anwendung. Hier öffnest Du den Fall über seine Fallnummer.</p></div>
         <button className="button secondary" type="button" onClick={onCreate}><FilePlus2 aria-hidden="true" /> Einzelfall anlegen</button>

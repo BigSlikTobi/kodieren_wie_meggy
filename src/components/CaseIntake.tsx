@@ -1,6 +1,7 @@
-import { ArrowLeft, ArrowRight, Check, FileImage, FileText, GitMerge, ListPlus, ShieldCheck, Upload } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, ChevronDown, FileCode2, FileImage, FileText, GitMerge, ListPlus, ShieldCheck, Upload } from 'lucide-react'
 import { useState } from 'react'
 import type { CodingCase, HospitalProfile, IntakeSource, TreatmentEvent } from '../types'
+import { CaseJourney } from './CaseJourney'
 import { TreatmentRibbon } from './TreatmentRibbon'
 
 interface CaseIntakeProps {
@@ -19,6 +20,10 @@ export function CaseIntake({ codingCase, hospitals, onBack, onAddSource, onAddEv
   const [eventType, setEventType] = useState<TreatmentEvent['type']>('Diagnostik')
   const hospital = hospitals.find((item) => item.id === codingCase.hospitalId)
   const profile = hospital?.profiles.find((item) => item.siteId === codingCase.siteId && item.year === codingCase.year)
+  const activeEntries = codingCase.codingEntries.filter((entry) => entry.active)
+  const icdCount = activeEntries.filter((entry) => entry.type === 'HD' || entry.type === 'ND').length
+  const opsCount = activeEntries.filter((entry) => entry.type === 'OPS').length
+  const currentRun = codingCase.grouperRuns.at(-1)
 
   const handleFile = (files: FileList | null, kind: 'screenshot' | 'arztbrief') => {
     const file = files?.[0]
@@ -42,6 +47,7 @@ export function CaseIntake({ codingCase, hospitals, onBack, onAddSource, onAddEv
   return (
     <div className="page intake-page">
       <button className="back-link" type="button" onClick={onBack}><ArrowLeft aria-hidden="true" /> Zurück zum Fallpool</button>
+      <CaseJourney active="basis" />
       <div className="intake-heading"><div><div className="page-kicker">Fallbasis · {codingCase.caseNumber}</div><h1>Stimmt der Behandlungsverlauf?</h1><p className="lead">Prüfe zuerst nur die erkannten Ereignisse und ihre Reihenfolge. Dokumente, Kodes und DRG-Hypothese folgen auf derselben Fallkarte im nächsten Schritt.</p></div><span className="status-pill status-wahrscheinlich">Noch nicht bestätigt</span></div>
 
       <section className="intake-case-strip" aria-label="Importierte Basisdaten">
@@ -55,9 +61,18 @@ export function CaseIntake({ codingCase, hospitals, onBack, onAddSource, onAddEv
         <TreatmentRibbon codingCase={codingCase} compact mode="intake" />
       </section>
 
-      <div className="intake-grid">
+      <details className="intake-coding-baseline">
+        <summary><span><FileCode2 aria-hidden="true" /><span><small>Danach prüfen</small><strong>Ausgangskodierung aus dem KIS</strong></span></span><span>{icdCount} ICD · {opsCount} OPS · {currentRun?.drg ?? 'DRG offen'}</span><ChevronDown aria-hidden="true" /></summary>
+        <div className="intake-coding-list">
+          {activeEntries.map((entry) => <span key={entry.id}><b>{entry.type}</b><code>{entry.code}</code><small>{entry.description}</small></span>)}
+        </div>
+      </details>
+
+      <details className="intake-support-details">
+        <summary><span><ListPlus aria-hidden="true" /><span><strong>Fallbasis ergänzen oder Quellen ansehen</strong><small>Nur öffnen, wenn ein Ereignis fehlt oder eine Herkunft unklar ist.</small></span></span><span>{codingCase.intakeSources.length} Quellen</span><ChevronDown aria-hidden="true" /></summary>
+        <div className="intake-grid">
         <section className="intake-sources" aria-labelledby="intake-sources-title">
-          <div className="section-title-row"><div><div className="page-kicker">Nachgelagerte Transparenz</div><h2 id="intake-sources-title">Importgrundlage</h2></div><span>Nicht Teil der Ereignisprüfung</span></div>
+          <div className="section-title-row"><div><div className="page-kicker">Nachvollziehbar</div><h2 id="intake-sources-title">Importgrundlage</h2></div><span>Nicht Teil der Ereignisprüfung</span></div>
           <div className="source-provenance-list">
             {codingCase.intakeSources.map((source) => (
               <div key={source.id}><span className={`source-kind source-${source.kind}`}>{source.kind === 'batch' ? <GitMerge aria-hidden="true" /> : source.kind === 'screenshot' ? <FileImage aria-hidden="true" /> : source.kind === 'arztbrief' ? <FileText aria-hidden="true" /> : <ListPlus aria-hidden="true" />}</span><span><strong>{source.label}</strong><small>{source.detail}</small></span><span className={`status-pill status-${source.status === 'bestätigt' ? 'belegt' : source.status === 'widersprüchlich' ? 'widersprüchlich' : 'wahrscheinlich'}`}>{source.status}</span></div>
@@ -74,11 +89,12 @@ export function CaseIntake({ codingCase, hospitals, onBack, onAddSource, onAddEv
           </div>
           {manualOpen && <div className="manual-event-form"><div className="form-grid"><label>Tag<input type="number" min="1" max={codingCase.stayDays} value={day} onChange={(event) => setDay(Number(event.target.value))} /></label><label>Fachabteilung<select value={department} onChange={(event) => setDepartment(event.target.value)}><option>Pneumologie</option><option>Intensivmedizin</option><option>Onkologie</option><option>Chirurgie</option><option>Kardiologie</option></select></label><label>Ereignis<select value={eventType} onChange={(event) => setEventType(event.target.value as TreatmentEvent['type'])}><option>Diagnostik</option><option>Eingriff</option><option>Therapie</option><option>Verlegung</option><option>Intensiv</option></select></label></div><button className="button secondary" type="button" onClick={addManualEvent}><Check aria-hidden="true" /> Ergänzung übernehmen</button></div>}
         </section>
-      </div>
+        </div>
+      </details>
 
       {codingCase.technicalValues.length > 0 && <div className="intake-technical-note"><ShieldCheck aria-hidden="true" /><span><strong>{codingCase.technicalValues.length} technische Leistungen wurden separat übernommen.</strong><small>Sie erscheinen später bei den Grouper-Eingaben. Dafür wird nicht automatisch ein Dokument verlangt.</small></span></div>}
 
-      <section className="intake-confirm"><div><Check aria-hidden="true" /><span><strong>Aufnahme, Entlassung und Behandlungskette geprüft?</strong><small>Einzelne Details können später ergänzt werden. Die Fallbasis bleibt nachvollziehbar versioniert.</small></span></div><button className="button primary" type="button" onClick={onConfirm}>Fallbasis bestätigen <ArrowRight aria-hidden="true" /></button></section>
+      <section className="intake-confirm"><div><Check aria-hidden="true" /><span><strong>Behandlungsverlauf und KIS-Ausgang stimmen?</strong><small>Danach startet die erste DRG-Hypothese. Beide Ausgangsstände bleiben versioniert.</small></span></div><button className="button primary" type="button" onClick={onConfirm}>Fallbasis bestätigen <ArrowRight aria-hidden="true" /></button></section>
     </div>
   )
 }

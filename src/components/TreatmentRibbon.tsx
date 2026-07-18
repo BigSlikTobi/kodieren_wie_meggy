@@ -1,4 +1,4 @@
-import { Activity, ArrowRight, BookOpenCheck, Building2, Cross, Database, FileCheck2, FileCode2, FileQuestion, FileUp, GitBranch, Microscope, NotebookText, Pill, Route, ScanLine, Scissors, ShieldAlert, ShieldCheck, Target } from 'lucide-react'
+import { Activity, ArrowRight, BookOpenCheck, Building2, ChevronDown, Cross, Database, FileCheck2, FileCode2, FileQuestion, FileUp, GitBranch, Microscope, NotebookText, Pill, Route, ScanLine, Scissors, ShieldAlert, ShieldCheck, Target } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { CodingCase, CodingEntry, DocumentMapItem, TreatmentEvent } from '../types'
 
@@ -217,7 +217,11 @@ function HypothesisCasePath({ codingCase, events, departments, documents, mode, 
     ?? events[0]
   const openRequired = codingCase.decisions.filter((decision) => decision.required && !['belegt', 'ausgeschlossen'].includes(decision.status)).length
   const relevantGaps = relevantDocuments.filter((document) => getDocumentEvidenceStatus(document).bucket === 'relevant-action').length
-  const safety = openRequired === 0 && relevantGaps === 0 ? 'hoch' : openRequired <= 1 && relevantGaps <= 1 ? 'mittel' : 'niedrig'
+  const openAlternatives = codingCase.decisions.filter((decision) => !['belegt', 'ausgeschlossen'].includes(decision.status)).length
+  const unvalidatedCodes = activeEntries.filter((entry) => entry.reviewStatus !== 'belegt').length
+  const stability = openRequired === 0 ? 'hoch' : openRequired === 1 ? 'mittel' : 'niedrig'
+  const evidenceSafety = relevantGaps === 0 ? 'hoch' : relevantGaps === 1 ? 'mittel' : 'niedrig'
+  const codingSafety = unvalidatedCodes === 0 ? 'hoch' : unvalidatedCodes <= 3 ? 'mittel' : 'niedrig'
   const focusTitle = openDecision?.title ?? focusDocument?.title ?? focusEvent?.label ?? 'Abschlussprüfung'
   const focusReason = openDecision?.effect ?? focusDocument?.resultImpact ?? 'Die verbleibende Belegkette gegen die aktuelle DRG-Hypothese prüfen.'
   const pathEvents = intakeMode ? events : events.filter((event) => {
@@ -252,7 +256,7 @@ function HypothesisCasePath({ codingCase, events, departments, documents, mode, 
 
   return (
     <section className="quiet-case-map" aria-label="Gemeinsame Fallkarte">
-      <header className="case-map-summary">
+      <header className={`case-map-summary ${intakeMode ? 'is-intake' : 'is-hypothesis'}`}>
         {intakeMode ? <>
           <span className="case-map-drg case-map-basis"><small>Fallbasis · automatisch zusammengeführt</small><strong>{events.length} zentrale Behandlungsereignisse</strong><em>Bitte nur Zeitfolge, Fachabteilung und Behandlung prüfen</em></span>
           <span className="case-map-safety safety-intake"><small>Prüfstatus</small><strong>noch offen</strong><em>{events.length} erkannte Ereignisse</em></span>
@@ -263,7 +267,9 @@ function HypothesisCasePath({ codingCase, events, departments, documents, mode, 
           </span>
         </> : <>
           <span className="case-map-drg"><small>DRG-Hypothese · Iteration {currentRun?.iteration ?? 1}</small><strong>{currentRun?.drg ?? '–'}</strong><em>{codingCase.currentMainDiagnosis}</em></span>
-          <span className={`case-map-safety safety-${safety}`}><small>Fallsicherheit</small><strong>{safety}</strong><em>{openRequired} Pflichtprüfung{openRequired === 1 ? '' : 'en'} offen</em></span>
+          <span className={`case-map-signal safety-${stability}`}><small>DRG-Stabilität</small><strong>{stability}</strong><em>{openAlternatives} Pfad{openAlternatives === 1 ? '' : 'e'} offen</em></span>
+          <span className={`case-map-signal safety-${evidenceSafety}`}><small>Belegsicherheit</small><strong>{evidenceSafety}</strong><em>{relevantGaps} relevante Lücke{relevantGaps === 1 ? '' : 'n'}</em></span>
+          <span className={`case-map-signal safety-${codingSafety}`}><small>Kodiersicherheit</small><strong>{codingSafety}</strong><em>{unvalidatedCodes} Kode{unvalidatedCodes === 1 ? '' : 's'} offen</em></span>
           <span className="case-map-stay" aria-label={`Verweildauer ${codingCase.stayDays} Tage, mittlere Verweildauer ${stayProfile?.meanDays ?? 'nicht ausgewiesen'}, obere Grenzverweildauer ${upperStay ?? 'nicht ausgewiesen'}`}>
             <span><small>Verweildauer</small><strong>{codingCase.stayDays} Tage</strong></span>
             <i><b style={{ left: `${stayPosition}%` }} /></i>
@@ -278,11 +284,19 @@ function HypothesisCasePath({ codingCase, events, departments, documents, mode, 
           <span><small>Vor der DRG-Hypothese</small><strong>Passen Fachabteilungen, Zeitfolge und zentrale Behandlungen?</strong><em>Bestätige hier nur die gemeinsame Fallbasis. Kodierentscheidungen folgen danach.</em></span>
         </div>
       ) : (
-        <button className="case-map-next-action" type="button" onClick={openFocus} disabled={!openDecision && !focusEvent && !focusDocument}>
-          <span className="case-map-next-number">1</span>
-          <span><small>Nächster belastbarer Schritt</small><strong>{focusTitle}</strong><em>{focusReason}</em></span>
-          <span>Prüfen <ArrowRight aria-hidden="true" /></span>
-        </button>
+        <>
+          <button className="case-map-next-action" type="button" onClick={openFocus} disabled={!openDecision && !focusEvent && !focusDocument}>
+            <span className="case-map-next-number">1</span>
+            <span><small>Nächster belastbarer Schritt</small><strong>{focusTitle}</strong><em>{focusReason}</em></span>
+            <span>Prüfen <ArrowRight aria-hidden="true" /></span>
+          </button>
+          <div className="case-map-priority-rail" aria-label="Reihenfolge der offenen Prüfungen">
+            <span className="current"><small>Jetzt klären</small><strong>{openDecision || focusDocument || focusEvent ? 1 : 0}</strong></span>
+            <span><small>Danach</small><strong>{Math.max(0, openRequired - (openDecision ? 1 : 0))}</strong></span>
+            <span><small>Nur wenn</small><strong>{codingCase.decisions.filter((decision) => !decision.required && !['belegt', 'ausgeschlossen'].includes(decision.status)).length}</strong></span>
+            <span><small>Nachgeordnet</small><strong>{deferredDocuments}</strong></span>
+          </div>
+        </>
       )}
 
       <figure className="case-map-figure">
@@ -328,19 +342,22 @@ function HypothesisCasePath({ codingCase, events, departments, documents, mode, 
             })}
           </div>
         </div>
-        <div className="case-map-legend" aria-label="Legende">
-          {intakeMode ? <>
-            <span><i><Building2 aria-hidden="true" /></i> Band = Fachabteilung</span>
-            <span><i><ScanLine aria-hidden="true" /></i> Symbol = Ereignisart</span>
-            <span><i>→</i> Zeitfolge von links nach rechts</span>
-          </> : <>
-            <span className="state-checked"><i>✓</i> geprüft</span>
-            <span className="state-focus"><i>?</i> jetzt prüfen</span>
-            <span className="state-missing"><i>!</i> relevanter Nachweis fehlt</span>
-            <span className="state-context"><i>○</i> Kontext</span>
-            <span><i>◆</i> mögliche Grouperwirkung</span>
-          </>}
-        </div>
+        <details className="case-map-legend-toggle" open>
+          <summary>Legende <ChevronDown aria-hidden="true" /></summary>
+          <div className="case-map-legend" aria-label="Legende">
+            {intakeMode ? <>
+              <span><i><Building2 aria-hidden="true" /></i> Band = Fachabteilung</span>
+              <span><i><ScanLine aria-hidden="true" /></i> Symbol = Ereignisart</span>
+              <span><i>→</i> Zeitfolge von links nach rechts</span>
+            </> : <>
+              <span className="state-checked"><i>✓</i> geprüft</span>
+              <span className="state-focus"><i>?</i> jetzt prüfen</span>
+              <span className="state-missing"><i>!</i> relevanter Nachweis fehlt</span>
+              <span className="state-context"><i>○</i> Kontext</span>
+              <span><i>◆</i> mögliche Grouperwirkung</span>
+            </>}
+          </div>
+        </details>
       </figure>
 
       {!intakeMode && focusEvent && (onUploadEventDocument || onUploadCourseDocument) && (

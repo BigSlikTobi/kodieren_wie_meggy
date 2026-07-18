@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ArrowRight, Check, FilePlus2, Hospital, Info, Upload } from 'lucide-react'
 import type { HospitalProfile, NewCaseInput } from '../types'
+import { CaseJourney } from './CaseJourney'
 
 interface CaseStartProps {
   hospitals: HospitalProfile[]
@@ -65,12 +66,13 @@ export function CaseStart({ hospitals, onStart }: CaseStartProps) {
 
   return (
     <div className="page narrow-page">
-      <div className="page-kicker">Neuer Fall</div>
-      <h1>In drei Schritten zur ersten Arbeitshypothese.</h1>
-      <p className="lead">Nur die nötigen Falldaten zuerst. Weitere Dokumente fordert der Prüfpfad gezielt an.</p>
+      <CaseJourney active="kis" />
+      <div className="page-kicker">Neuer Fall · Schritt {step} von 3</div>
+      <h1>Fall aus dem KIS übernehmen.</h1>
+      <p className="lead">KIS-Fall öffnen, Ausgangsunterlagen übernehmen und anschließend nur die gemeinsame Fallbasis bestätigen.</p>
 
       <ol className="stepper" aria-label="Fallstart Fortschritt">
-        {['Kontext', 'Dokumente', 'Prüfen'].map((label, index) => (
+        {['Falldaten', 'Quellen', 'Übernahme'].map((label, index) => (
           <li key={label} className={step >= index + 1 ? 'active' : ''} aria-current={step === index + 1 ? 'step' : undefined}>
             <span>{step > index + 1 ? <Check aria-hidden="true" /> : index + 1}</span>{label}
           </li>
@@ -135,7 +137,7 @@ export function CaseStart({ hospitals, onStart }: CaseStartProps) {
         <section className="panel form-panel" aria-labelledby="documents-title">
           <div className="section-heading">
             <FilePlus2 aria-hidden="true" />
-            <div><h2 id="documents-title">Erste Dokumente</h2><p>Im Prototyp werden nur Dateiname und Typ lokal gespeichert.</p></div>
+            <div><h2 id="documents-title">Ausgangsunterlagen</h2><p>Aktuelle Kodierung und mindestens ein Entlassungsbericht bilden den Startpunkt.</p></div>
           </div>
           <label className="upload-zone">
             <Upload aria-hidden="true" />
@@ -156,7 +158,7 @@ export function CaseStart({ hospitals, onStart }: CaseStartProps) {
         <section className="panel review-panel" aria-labelledby="review-title">
           <div className="section-heading">
             <Check aria-hidden="true" />
-            <div><h2 id="review-title">Bereit für die erste Iteration</h2><p>Der Prototyp simuliert Dokumentanalyse und Grouper-Lauf.</p></div>
+            <div><h2 id="review-title">Bereit, die Fallbasis zu prüfen</h2><p>Behandlungsereignisse und Ausgangskodierung werden im nächsten Schritt getrennt bestätigt.</p></div>
           </div>
           <dl className="review-list">
             <div><dt>Kontext</dt><dd>{hospital?.name}, {profile?.siteName}, {year}</dd></div>
@@ -173,7 +175,7 @@ export function CaseStart({ hospitals, onStart }: CaseStartProps) {
         {step < 3 ? (
           <button className="button primary" type="button" onClick={next}>Weiter <ArrowRight aria-hidden="true" /></button>
         ) : (
-          <button className="button primary" type="button" onClick={submit}>Fall analysieren <ArrowRight aria-hidden="true" /></button>
+          <button className="button primary" type="button" onClick={submit}>Fallbasis vorbereiten <ArrowRight aria-hidden="true" /></button>
         )}
       </div>
     </div>
