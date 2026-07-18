@@ -135,8 +135,22 @@ describe('Kodierpfad – geführter Arbeitsablauf', () => {
     expect(within(biopsyEvent).getByLabelText(/Dokument für Bronchoskopische Biopsie hochladen/i)).toBeInTheDocument()
     await user.upload(within(biopsyEvent).getByLabelText(/Dokument zu diesem Ereignis/i), new File(['demo'], 'op-bericht.pdf', { type: 'application/pdf' }))
 
-    await waitFor(() => expect(screen.getByText(/LLM-Zuordnung vorbereitet/i)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getAllByText(/LLM-Zuordnung vorbereitet/i).length).toBeGreaterThan(0))
     expect(screen.getAllByText(/Neu hochgeladen und diesem Ereignis zugeordnet/i).length).toBeGreaterThan(0)
+
+    const documentDialog = screen.getByRole('dialog', { name: /Bronchoskopie- und Biopsiebericht/i })
+    expect(within(documentDialog).getByLabelText(/Ausgelesener Dokumenttext/i)).toHaveTextContent(/Aufnahmegrund und Behandlungsbezug/i)
+    expect(within(documentDialog).getAllByText(/Belegstelle/i).length).toBeGreaterThan(0)
+
+    await user.click(within(documentDialog).getByRole('button', { name: /Wiki fragen/i }))
+    const wikiDialog = screen.getByRole('dialog', { name: 'Wiki-Chat' })
+    expect(within(wikiDialog).getByText(/Empfehlung und Dokumentation nebeneinander/i)).toBeInTheDocument()
+    await user.type(within(wikiDialog).getByLabelText(/Frage an den Wiki-Chat/i), 'Welche OPS-Systematik ist hier relevant?')
+    await user.click(within(wikiDialog).getByRole('button', { name: /Senden/i }))
+    const returnToCoding = within(wikiDialog).getByRole('button', { name: /Zur Kodierentscheidung/i })
+    expect(returnToCoding).toBeDisabled()
+    await user.click(within(wikiDialog).getByLabelText(/Hinweis und Dokumentation geprüft/i))
+    expect(returnToCoding).toBeEnabled()
   })
 
   it('führt nach Pflichtprüfungen über Regelprüfung zur manuellen KIS-Übergabe', async () => {
@@ -160,6 +174,14 @@ describe('Kodierpfad – geführter Arbeitsablauf', () => {
     expect(screen.getByRole('heading', { name: /Prüfung abgeschlossen – KIS-Übernahme ausstehend/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /KIS-Übertragungsliste öffnen/i })).toBeInTheDocument()
     expect(screen.getByText(/Keine Schnittstelle zum Primärsystem/i)).toBeInTheDocument()
+    const finalClose = screen.getByRole('button', { name: /KIS-Übernahme bestätigen und Fall abschließen/i })
+    expect(finalClose).toBeDisabled()
+    await user.click(screen.getByLabelText(/Kodierung im KIS übernommen/i))
+    await user.click(screen.getByLabelText(/Groupergebnis im KIS geprüft/i))
+    expect(finalClose).toBeEnabled()
+    await user.click(finalClose)
+    expect(screen.getByRole('heading', { name: /Fall sicher abgeschlossen/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Nächsten Fall auswählen/i })).toBeInTheDocument()
   })
 
   it('zeigt sekundäre Grouper-Eingaben weiterhin bei Bedarf', async () => {

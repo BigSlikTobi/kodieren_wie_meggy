@@ -1,4 +1,4 @@
-import type { AppData, BatchCaseRecord, CodingCase, CodingEntry, DocumentOutcomeDimensions, HospitalProfile, KisGuide, NewCaseInput, OutcomeDimensionStatus, RuleDefinition, TechnicalCaseValue } from '../types'
+import type { AppData, BatchCaseRecord, CaseDocument, CodingCase, CodingEntry, DocumentOutcomeDimensions, HospitalProfile, KisGuide, NewCaseInput, OutcomeDimensionStatus, RuleDefinition, TechnicalCaseValue } from '../types'
 import { getDrgLengthOfStayProfile } from './drgCatalog'
 
 const isoNow = () => new Date().toISOString()
@@ -7,6 +7,17 @@ function addDays(value: string, days: number) {
   const date = new Date(`${value}T12:00:00`)
   date.setDate(date.getDate() + days)
   return date.toISOString().slice(0, 10)
+}
+
+function demoDocumentPreview(name: string, isComplex: boolean) {
+  const lowerName = name.toLowerCase()
+  if (lowerName.includes('kodier') || /\.(csv|xls|xlsx)$/i.test(name)) {
+    return 'KIS-Kodierexport\n\nHauptdiagnose: aus dem Primärsystem übernommen.\n\nNebendiagnosen und Prozeduren: Ausgangsstand vor der fallbezogenen Prüfung.\n\nDiese Liste ist die Referenz für alle späteren Änderungen.'
+  }
+  if (isComplex) {
+    return 'Entlassungsbericht\n\nAufnahmegrund: stationäre Abklärung eines suspekten thorakalen Befundes.\n\nIm Verlauf erfolgten CT-Thorax, Bronchoskopie mit Biopsie und histologische Sicherung. Die Hauptdiagnose wurde im Gesamtfall onkologisch geführt.\n\nNach Verlegung in die Onkologie wurde eine systemische Tumortherapie begonnen. Therapieart und Dosis sind im gesonderten Medikationsnachweis zu prüfen.\n\nEntlassung nach klinischer Stabilisierung mit ambulanter onkologischer Weiterbehandlung.'
+  }
+  return 'Entlassungsbericht\n\nAufnahmegrund: Fieber, Husten und Dyspnoe bei radiologischem Infiltrat.\n\nHauptdiagnose: Pneumonie, nicht näher bezeichnet. Kein belastbarer spezifischer Erregernachweis.\n\nKonservative Therapie mit klinischer Besserung. Keine invasive Prozedur und kein Fachabteilungswechsel.\n\nEntlassung in stabilem Allgemeinzustand.'
 }
 
 const dimensions = (
@@ -640,6 +651,23 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
     : generatedCodingEntries
   const activeMainDiagnosis = codingEntries.find((entry) => entry.active && entry.type === 'HD')
   const activeProcedures = codingEntries.filter((entry) => entry.active && entry.type === 'OPS')
+  const sourceDocuments: CaseDocument[] = input.files.map((name, index) => ({
+    id: `doc-${index}`,
+    name,
+    kind: name.split('.').pop()?.toUpperCase() || 'Datei',
+    addedAt: isoNow(),
+    status: 'ausgewertet',
+    mimeType: name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : name.toLowerCase().endsWith('.txt') ? 'text/plain' : 'text/csv',
+    previewText: demoDocumentPreview(name, isComplex),
+    previewLabel: name.toLowerCase().includes('kodier') || /\.(csv|xls|xlsx)$/i.test(name) ? 'Strukturierte KIS-Ausgangsdaten' : 'LLM-Textansicht des hochgeladenen Dokuments',
+  }))
+  const codingSource = sourceDocuments.find((document) => document.name.toLowerCase().includes('kodier') || /\.(csv|xls|xlsx)$/i.test(document.name))
+  const clinicalSource = sourceDocuments.find((document) => document.id !== codingSource?.id)
+  const documentMapWithSources = documentMap.map((document) => {
+    if (document.kind === 'vorkodierung' && codingSource) return { ...document, sourceDocumentId: codingSource.id }
+    if (document.kind === 'verlaufsbericht' && clinicalSource) return { ...document, sourceDocumentId: clinicalSource.id }
+    return document
+  })
 
   return {
     id,
@@ -709,14 +737,8 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
       ? activeProcedures.map((entry) => `${entry.code} · ${entry.description}`)
       : ['Keine OPS-Kodierung übernommen'],
     timeline,
-    documents: input.files.map((name, index) => ({
-      id: `doc-${index}`,
-      name,
-      kind: name.split('.').pop()?.toUpperCase() || 'Datei',
-      addedAt: isoNow(),
-      status: 'ausgewertet' as const,
-    })),
-    documentMap,
+    documents: sourceDocuments,
+    documentMap: documentMapWithSources,
     decisions: isComplex
       ? [
           {
