@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Building2, FileCheck2, RotateCcw, Route, Scale, ShieldCheck } from 'lucide-react'
 import { CaseCockpit } from './components/CaseCockpit'
 import { CaseIntake } from './components/CaseIntake'
@@ -24,6 +24,10 @@ export default function App() {
     () => data.cases.find((codingCase) => codingCase.id === data.currentCaseId),
     [data.cases, data.currentCaseId],
   )
+
+  useEffect(() => {
+    window.scrollTo({ top: 0 })
+  }, [view])
 
   const startCase = (input: NewCaseInput) => {
     const codingCase = createDemoCase(input)
@@ -110,6 +114,7 @@ export default function App() {
             onBack={() => { setData((current) => ({ ...current, currentCaseId: undefined })); setView('worklist') }}
             onAddSource={(source) => mutateCurrentCase((codingCase) => ({ ...codingCase, intakeSources: [...codingCase.intakeSources, source] }))}
             onAddEvent={(event: TreatmentEvent) => mutateCurrentCase((codingCase) => ({ ...codingCase, timeline: [...codingCase.timeline, event].sort((a, b) => a.day - b.day) }))}
+            onRemoveEvent={(eventId) => mutateCurrentCase((codingCase) => ({ ...codingCase, timeline: codingCase.timeline.filter((event) => event.id !== eventId) }))}
             onConfirm={() => { mutateCurrentCase((codingCase) => ({ ...codingCase, intakeConfirmed: true, intakeSources: codingCase.intakeSources.map((source) => source.status === 'widersprüchlich' ? source : { ...source, status: 'bestätigt' }) })); setView('case') }}
           />
         )}

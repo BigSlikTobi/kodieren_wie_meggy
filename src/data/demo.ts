@@ -314,7 +314,7 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
   )
   const hospitalTypicality = !isComplex || supportsPulmoOnkoPath ? 'typisch' as const : 'untypisch' as const
   const difficult = isComplex || input.careForm === 'Normal- und Intensivstation'
-  const timeline = isComplex
+  const generatedTimeline = isComplex
     ? [
         { id: 't1', day: 1, time: '09:15', department: 'Pneumologie', type: 'Aufnahme' as const, label: 'Aufnahme mit thorakalem Befund', linkedDocumentIds: ['map-pulmo-report', 'map-precode'] },
         { id: 't2', day: 2, time: '10:30', department: 'Pneumologie', type: 'Diagnostik' as const, label: 'CT-Thorax und Befundbewertung', linkedDocumentIds: ['map-pulmo-report', 'map-microbiology'] },
@@ -339,6 +339,13 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
         { id: 't3', day: 3, endDay: input.stayDays - 1, time: '08:00', department: 'Pneumologie', type: 'Therapie' as const, label: 'Konservative Therapie', linkedDocumentIds: ['map-discharge'] },
         { id: 't4', day: input.stayDays, time: '11:00', department: 'Pneumologie', type: 'Entlassung' as const, label: 'Entlassung', linkedDocumentIds: ['map-discharge'] },
       ]
+  const timeline = input.manualTimeline?.length
+    ? [
+        { id: 't-manual-admission', day: 1, time: '09:00', department: input.manualTimeline[0]?.department ?? 'Aufnahme', type: 'Aufnahme' as const, label: 'Aufnahme', linkedDocumentIds: ['map-precode'] },
+        ...input.manualTimeline.map((event, index) => ({ ...event, id: event.id || `t-manual-${index + 1}`, linkedDocumentIds: event.linkedDocumentIds ?? [] })).sort((a, b) => a.day - b.day),
+        { id: 't-manual-discharge', day: input.stayDays, time: '11:00', department: input.manualTimeline.at(-1)?.department ?? 'Entlassung', type: 'Entlassung' as const, label: 'Entlassung', linkedDocumentIds: [] },
+      ]
+    : generatedTimeline
   const documentMap = isComplex
     ? [
         {
@@ -514,7 +521,7 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
         },
       ]
 
-  const codingEntries: CodingEntry[] = isComplex
+  const generatedCodingEntries: CodingEntry[] = isComplex
     ? [
         {
           id: 'coding-hd-c349',
@@ -611,6 +618,28 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           groupingImpactReason: 'Die Hauptdiagnose bestimmt den pneumologischen DRG-Pfad.',
         },
       ]
+  const codingEntries: CodingEntry[] = input.manualCodingEntries?.length
+    ? input.manualCodingEntries.map((entry, index) => ({
+        id: `coding-manual-baseline-${index + 1}`,
+        type: entry.type,
+        code: entry.code,
+        description: entry.description || 'Manuell aus dem KIS übernommen',
+        change: 'unchanged',
+        origin: 'vorkodierung',
+        reviewStatus: 'ungeprüft',
+        active: true,
+        source: 'Manuell aus dem KIS übernommen',
+        evidenceDocumentId: 'map-precode',
+        treatmentEventId: timeline.find((event) => entry.type === 'OPS' ? ['Eingriff', 'Therapie', 'Intensiv'].includes(event.type) : event.type === 'Aufnahme')?.id,
+        serviceDate: entry.type === 'OPS' ? addDays(admissionDate, Math.max(0, (timeline.find((event) => ['Eingriff', 'Therapie', 'Intensiv'].includes(event.type))?.day ?? 1) - 1)) : admissionDate,
+        department: entry.type === 'HD' ? 'Gesamtfall' : timeline.find((event) => !['Aufnahme', 'Entlassung'].includes(event.type))?.department,
+        assessedIteration: 1,
+        groupingImpact: entry.type === 'HD' ? 'pfadbestimmend' : entry.type === 'OPS' ? 'potenziell' : 'ohne-änderung',
+        groupingImpactReason: entry.type === 'HD' ? 'Die Hauptdiagnose bestimmt MDC und führenden DRG-Pfad.' : 'Manuell übernommener Ausgangskode; Wirkung wird in der ersten Iteration geprüft.',
+      }))
+    : generatedCodingEntries
+  const activeMainDiagnosis = codingEntries.find((entry) => entry.active && entry.type === 'HD')
+  const activeProcedures = codingEntries.filter((entry) => entry.active && entry.type === 'OPS')
 
   return {
     id,
@@ -675,10 +704,10 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
       { id: 'source-manual', kind: 'manuell' as const, label: 'Manuelle Fallangaben', status: 'bestätigt' as const, detail: 'Alter, Verweildauer und Versorgungsform wurden manuell erfasst.', addedAt: isoNow() },
     ],
     status: 'offen',
-    currentMainDiagnosis: isComplex ? 'C34.9 · Demo: Bronchialkarzinom, nicht näher bezeichnet' : 'J18.9 · Demo: Pneumonie, nicht näher bezeichnet',
-    currentProcedures: isComplex
-      ? ['1-6xx · Demo: Bronchoskopische Diagnostik', '8-54x · Demo: Systemische Tumortherapie']
-      : ['Keine gruppierungsrelevante OR-Prozedur vorkodiert'],
+    currentMainDiagnosis: activeMainDiagnosis ? `${activeMainDiagnosis.code} · ${activeMainDiagnosis.description}` : 'Keine Hauptdiagnose übernommen',
+    currentProcedures: activeProcedures.length
+      ? activeProcedures.map((entry) => `${entry.code} · ${entry.description}`)
+      : ['Keine OPS-Kodierung übernommen'],
     timeline,
     documents: input.files.map((name, index) => ({
       id: `doc-${index}`,
@@ -781,6 +810,13 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
     ],
     codingEntries,
     technicalValues: input.technicalValues ?? [],
+    grouperAdministrativeData: input.grouperAdministrativeData ?? {
+      admissionReasonCode: '01 07',
+      admissionReasonLabel: 'vollstationär · Notfall',
+      dischargeReasonCode: '01 90',
+      dischargeReasonLabel: 'regulär beendet · illustrative Demoangabe',
+      admissionWeightGrams: input.age < 1 ? 3250 : undefined,
+    },
     medicalJustification: isComplex
       ? {
           status: 'entwurf-belegbar',

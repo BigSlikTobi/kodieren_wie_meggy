@@ -27,6 +27,8 @@ interface DocumentLandscapeProps {
   kisGuides: KisGuide[]
   initialEventId?: string
   initialDocumentId?: string
+  onUploadEventDocument?: (eventId: string, files: FileList | null) => void
+  onUploadCourseDocument?: (eventId: string, files: FileList | null) => void
 }
 
 const kindLabels: Record<DocumentMapItem['kind'], string> = {
@@ -45,6 +47,8 @@ export function DocumentLandscape({
   kisGuides,
   initialEventId,
   initialDocumentId,
+  onUploadEventDocument,
+  onUploadCourseDocument,
 }: DocumentLandscapeProps) {
   const documents = codingCase.documentMap ?? []
   const eventFromFocus = codingCase.timeline.find((event) => event.id === initialEventId)
@@ -90,6 +94,8 @@ export function DocumentLandscape({
             documents={documents}
             focused={event.id === initialEventId}
             onSelectDocument={setSelectedDocumentId}
+            onUploadEventDocument={onUploadEventDocument}
+            onUploadCourseDocument={onUploadCourseDocument}
           />
         ))}
       </div>
@@ -126,12 +132,14 @@ export function DocumentLandscape({
   )
 }
 
-function EventRow({ event, codingCase, documents, focused, onSelectDocument }: {
+function EventRow({ event, codingCase, documents, focused, onSelectDocument, onUploadEventDocument, onUploadCourseDocument }: {
   event: TreatmentEvent
   codingCase: CodingCase
   documents: DocumentMapItem[]
   focused: boolean
   onSelectDocument: (id: string) => void
+  onUploadEventDocument?: (eventId: string, files: FileList | null) => void
+  onUploadCourseDocument?: (eventId: string, files: FileList | null) => void
 }) {
   const linkedDocuments = documents.filter((item) => event.linkedDocumentIds?.includes(item.id))
   const linkedCodes = codingCase.codingEntries.filter((entry) => entry.treatmentEventId === event.id || linkedDocuments.some((item) => item.id === entry.evidenceDocumentId))
@@ -163,6 +171,10 @@ function EventRow({ event, codingCase, documents, focused, onSelectDocument }: {
           <div className="chronology-codes">
             {linkedCodes.length ? linkedCodes.map((entry) => <CodeBadge entry={entry} key={entry.id} />) : <span className="chronology-empty">Noch kein Kode aus diesem Ereignis</span>}
           </div>
+        </div>
+        <div className="event-upload-actions" aria-label={`Dokument für ${event.label} hochladen`}>
+          {onUploadEventDocument && <label><Upload aria-hidden="true" /><span><strong>Dokument zu diesem Ereignis</strong><small>OP-, Interventions- oder Befundbericht</small></span><input className="sr-only" type="file" accept=".pdf,.txt,.doc,.docx,image/*" onChange={(uploadEvent) => onUploadEventDocument(event.id, uploadEvent.target.files)} /></label>}
+          {onUploadCourseDocument && <label><FileText aria-hidden="true" /><span><strong>Verlaufsdokument</strong><small>Für diesen Aufenthalt oder Teilaufenthalt</small></span><input className="sr-only" type="file" accept=".pdf,.txt,.doc,.docx,image/*" onChange={(uploadEvent) => onUploadCourseDocument(event.id, uploadEvent.target.files)} /></label>}
         </div>
       </div>
     </article>
@@ -228,17 +240,20 @@ function DocumentDetail({ document, codingCase, kisGuide, onClose, onOpenDecisio
           )}
         </section>
 
-        <dl className="document-detail-list">
-          <div><dt>Vorprüfung</dt><dd>{document.reason}</dd></div>
-          <div><dt>Kodierhinweis</dt><dd>{document.codingNote}</dd></div>
-          <div><dt>Mögliche Ergebniswirkung</dt><dd>{document.resultImpact}</dd></div>
-          <div><dt>Prüftiefe</dt><dd>{reviewLabel(document.reviewLevel)}</dd></div>
-        </dl>
-        <div className="outcome-dimensions" aria-label="Ergebniswirkung nach Dimension">
-          {(Object.entries(document.outcomeDimensions) as [keyof DocumentMapItem['outcomeDimensions'], OutcomeDimensionStatus][]).map(([dimension, value]) => (
-            <div key={dimension}><span>{dimensionLabel(dimension)}</span><strong className={`dimension-${value}`}>{dimensionStatusLabel(value)}</strong></div>
-          ))}
-        </div>
+        <details className="quiet-details document-secondary-details">
+          <summary><span>Fachliche Einordnung anzeigen</span><ChevronDown aria-hidden="true" /></summary>
+          <dl className="document-detail-list">
+            <div><dt>Vorprüfung</dt><dd>{document.reason}</dd></div>
+            <div><dt>Kodierhinweis</dt><dd>{document.codingNote}</dd></div>
+            <div><dt>Mögliche Ergebniswirkung</dt><dd>{document.resultImpact}</dd></div>
+            <div><dt>Prüftiefe</dt><dd>{reviewLabel(document.reviewLevel)}</dd></div>
+          </dl>
+          <div className="outcome-dimensions" aria-label="Ergebniswirkung nach Dimension">
+            {(Object.entries(document.outcomeDimensions) as [keyof DocumentMapItem['outcomeDimensions'], OutcomeDimensionStatus][]).map(([dimension, value]) => (
+              <div key={dimension}><span>{dimensionLabel(dimension)}</span><strong className={`dimension-${value}`}>{dimensionStatusLabel(value)}</strong></div>
+            ))}
+          </div>
+        </details>
         <details className="kis-inline-help">
           <summary><span><Monitor aria-hidden="true" /><span><strong>Wo finde ich das im KIS?</strong><small>Hausbezogene Orientierung</small></span></span><ChevronDown aria-hidden="true" /></summary>
           {kisGuide ? <div className="kis-inline-content"><div className="kis-path">{kisGuide.navigationPath.map((step) => <span key={step}>{step}</span>)}</div><dl className="document-detail-list"><div><dt>Modul</dt><dd>{kisGuide.module}</dd></div><div><dt>Suchbegriff</dt><dd>{kisGuide.searchTerm || 'Keiner'}</dd></div><div><dt>So geht es</dt><dd>{kisGuide.instruction}</dd></div><div><dt>Hausbesonderheit</dt><dd>{kisGuide.notes}</dd></div></dl>{kisGuide.screenshots[0] && <div className="kis-inline-screen"><KisSchematic /><span><strong>{kisGuide.screenshots[0].fileName}</strong><small>{kisGuide.screenshots[0].caption}</small></span></div>}</div> : <p className="kis-missing-guide">Für diese Dokumentart ist noch kein Fundort hinterlegt.</p>}

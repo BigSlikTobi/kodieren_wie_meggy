@@ -85,23 +85,26 @@ export function DecisionCodingWorkspace({
         )) : <div className="decision-code-empty"><FileCode2 aria-hidden="true" /><span><strong>Kein Kode aus Vorkodierung, Dokument oder Fachentscheidung</strong><small>Die Kodierfachkraft kann direkt starten oder Hilfe hinzuziehen.</small></span></div>}
       </div>
 
-      <div className={`decision-route-recommendation route-${route.kind}`}>
-        {route.kind === 'consult' ? <Stethoscope aria-hidden="true" /> : route.kind === 'wiki' ? <MessageCircle aria-hidden="true" /> : <UserRoundCheck aria-hidden="true" />}
-        <span><small>Empfohlener Weg aufgrund Relevanz und Fachkenntnis</small><strong>{route.title}</strong><span>{route.reason}</span></span>
-      </div>
+      <details className={`decision-route-recommendation route-${route.kind}`}>
+        <summary>{route.kind === 'consult' ? <Stethoscope aria-hidden="true" /> : route.kind === 'wiki' ? <MessageCircle aria-hidden="true" /> : <UserRoundCheck aria-hidden="true" />}<span><small>Empfohlener Weg</small><strong>{route.title}</strong></span></summary>
+        <p>{route.reason}</p>
+      </details>
 
-      <div className="decision-route-grid" aria-label="Bearbeitungswege">
+      <div className="decision-route-grid" aria-label="Direkte Bearbeitungswege">
         <button className={`decision-route-action ${route.kind === 'self' ? 'recommended' : ''}`} type="button" onClick={onManualCoding}>
           <FileCode2 aria-hidden="true" /><span><strong>Manuell kodieren</strong><small>ICD oder OPS durch KFK ergänzen, ändern oder löschen</small></span>
         </button>
         <button className={`decision-route-action ${precodeEntries.length ? '' : 'unavailable'}`} type="button" disabled={!precodeEntries.length || running} onClick={onValidatePrecode}>
           <Check aria-hidden="true" /><span><strong>{precodeEntries.length ? 'Vorkodierung validieren' : 'Keine Vorkodierung'}</strong><small>{precodeEntries.length ? `${precodeEntries.length} vorhandene Kodes prüfen und abschließen` : 'Für diesen Sachverhalt ist nichts vorhanden'}</small></span>
         </button>
-        <button className={`decision-route-action ${route.kind === 'wiki' ? 'recommended' : ''}`} type="button" onClick={onWiki}>
-          <MessageCircle aria-hidden="true" /><span><strong>Mit Kodierwiki erarbeiten</strong><small>{wikiStarted ? 'Wiki-Dialog begonnen · Ergebnis in Kodierung übernehmen' : 'Grundlagen und Systematik gemeinsam klären'}</small></span>
+      </div>
+
+      <div className="decision-help-actions" aria-label="Unterstützung für die Kodierentscheidung">
+        <button className={route.kind === 'wiki' ? 'recommended' : ''} type="button" onClick={onWiki}>
+          <MessageCircle aria-hidden="true" /><span><strong>Kodierwiki fragen</strong><small>{wikiStarted ? 'Dialog begonnen' : 'Regeln und Systematik klären'}</small></span>
         </button>
-        <button className={`decision-route-action ${route.kind === 'consult' ? 'recommended' : ''}`} type="button" onClick={onConsult}>
-          <Stethoscope aria-hidden="true" /><span><strong>Kodierkonsil anfordern</strong><small>{consultationStatus ? `Konsil ${consultationStatus}` : 'Menschliche Fachentscheidung mit vollständigem Fallkontext'}</small></span>
+        <button className={route.kind === 'consult' ? 'recommended' : ''} type="button" onClick={onConsult}>
+          <Stethoscope aria-hidden="true" /><span><strong>Kodierkonsil anfordern</strong><small>{consultationStatus ? `Konsil ${consultationStatus}` : 'Menschliche Fachentscheidung'}</small></span>
         </button>
       </div>
 
