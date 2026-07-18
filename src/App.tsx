@@ -114,6 +114,7 @@ export default function App() {
             onBack={() => { setData((current) => ({ ...current, currentCaseId: undefined })); setView('worklist') }}
             onAddSource={(source) => mutateCurrentCase((codingCase) => ({ ...codingCase, intakeSources: [...codingCase.intakeSources, source] }))}
             onAddEvent={(event: TreatmentEvent) => mutateCurrentCase((codingCase) => ({ ...codingCase, timeline: [...codingCase.timeline, event].sort((a, b) => a.day - b.day) }))}
+            onRemoveEvent={(eventId) => mutateCurrentCase((codingCase) => ({ ...codingCase, timeline: codingCase.timeline.filter((event) => event.id !== eventId) }))}
             onConfirm={() => { mutateCurrentCase((codingCase) => ({ ...codingCase, intakeConfirmed: true, intakeSources: codingCase.intakeSources.map((source) => source.status === 'widersprüchlich' ? source : { ...source, status: 'bestätigt' }) })); setView('case') }}
           />
         )}

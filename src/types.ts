@@ -57,7 +57,7 @@ export interface HospitalProfile {
   profiles: SiteYearProfile[]
 }
 
-export type IntakeSourceKind = 'batch' | 'screenshot' | 'arztbrief' | 'manuell'
+export type IntakeSourceKind = 'batch' | 'screenshot' | 'arztbrief' | 'datenimport' | 'kodierung' | 'manuell'
 export type SourceValidationStatus = 'importiert' | 'erkannt' | 'bestätigt' | 'widersprüchlich'
 
 export interface IntakeSource {
@@ -369,4 +369,10 @@ export interface NewCaseInput {
   technicalValues?: TechnicalCaseValue[]
   grouperAdministrativeData?: GrouperAdministrativeData
   intakeSources?: IntakeSource[]
+  manualTimeline?: TreatmentEvent[]
+  manualCodingEntries?: Array<{
+    type: CodingEntryType
+    code: string
+    description: string
+  }>
 }

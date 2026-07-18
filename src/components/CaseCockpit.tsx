@@ -44,6 +44,18 @@ interface CaseCockpitProps {
   onNewCase: () => void
 }
 
+interface IterationFeedback {
+  title: string
+  previousDrg: string
+  previousIteration: number
+  currentDrg: string
+  currentIteration: number
+  changed: boolean
+  nextDecisionId?: string
+  nextDecisionTitle?: string
+  optionalOpen: number
+}
+
 export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange, onNewCase }: CaseCockpitProps) {
   const [activeDecision, setActiveDecision] = useState<string | undefined>(codingCase.decisions[0]?.id)
   const [runningDecision, setRunningDecision] = useState<string>()
@@ -58,6 +70,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
   const [codingTransferOpen, setCodingTransferOpen] = useState(false)
   const [grouperInputsOpen, setGrouperInputsOpen] = useState(false)
   const [directCodingDecisionId, setDirectCodingDecisionId] = useState<string>()
+  const [iterationFeedback, setIterationFeedback] = useState<IterationFeedback>()
 
   useEffect(() => {
     window.scrollTo({ top: 0 })
@@ -66,7 +79,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
   const hospital = hospitals.find((item) => item.id === codingCase.hospitalId)
   const profile = hospital?.profiles.find((item) => item.siteId === codingCase.siteId && item.year === codingCase.year)
   const currentRun = codingCase.grouperRuns.at(-1)!
-  const firstOpenDecision = codingCase.decisions.find((decision) => !['belegt', 'ausgeschlossen'].includes(decision.status))
+  const firstOpenDecision = codingCase.decisions.find((decision) => decision.required && !['belegt', 'ausgeschlossen'].includes(decision.status))
   const openRequired = codingCase.decisions.filter((decision) => decision.required && decision.status !== 'belegt' && decision.status !== 'ausgeschlossen')
   const openAlternatives = codingCase.decisions.filter((decision) => !decision.required && !['belegt', 'ausgeschlossen'].includes(decision.status))
   const unresolvedTechnical = codingCase.technicalValues.filter((value) => !['bestätigt', 'korrigiert'].includes(value.status))
@@ -90,6 +103,28 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
   const focusedDecisionEntries = focusedDecision ? getDecisionCodingEntries(codingCase.codingEntries, focusedDecision.id, focusedDecision.title) : []
   const focusedConsultation = focusedDecision ? codingCase.consultations.find((item) => item.decisionId === focusedDecision.id) : undefined
   const focusedWikiStarted = focusedDecision ? codingCase.wikiThreads.some((thread) => thread.decisionId === focusedDecision.id) : false
+
+  const openDecisionStep = (decisionId: string) => {
+    setIterationFeedback(undefined)
+    setActiveDecision(decisionId)
+    setActiveStep(3)
+  }
+
+  const showIterationFeedback = (title: string, previousDrg: string, previousIteration: number, nextCase: CodingCase, nextRun: CodingCase['grouperRuns'][number]) => {
+    const nextRequired = nextCase.decisions.find((decision) => decision.required && !['belegt', 'ausgeschlossen'].includes(decision.status))
+    setIterationFeedback({
+      title,
+      previousDrg,
+      previousIteration,
+      currentDrg: nextRun.drg,
+      currentIteration: nextRun.iteration,
+      changed: nextRun.drg !== previousDrg,
+      nextDecisionId: nextRequired?.id,
+      nextDecisionTitle: nextRequired?.title,
+      optionalOpen: nextCase.decisions.filter((decision) => !decision.required && !['belegt', 'ausgeschlossen'].includes(decision.status)).length,
+    })
+    setActiveStep(3)
+  }
 
   const mutateCase = (nextCase: CodingCase) => {
     onDataChange((current) => ({
@@ -197,7 +232,6 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
         priority: 'erledigt',
       } : item),
     }
-    mutateCase(updatedCase)
     const newRun = await grouperClient.group(updatedCase, `Nachvalidierung ${documentItem.title}`)
     mutateCase({
       ...updatedCase,
@@ -233,13 +267,14 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
         ? { ...item, status: mode, resolution: mode === 'belegt' ? `Belegt durch ${document?.name}` : 'Im Demopfad fachlich ausgeschlossen' }
         : item),
     }
-    mutateCase(updatedCase)
     const newRun = await grouperClient.group(updatedCase, mode === 'ausgeschlossen' ? `${decisionId} ausgeschlossen` : decisionId)
-    mutateCase({
+    const regroupedCase: CodingCase = {
       ...updatedCase,
       documentMap: updatedCase.documentMap.map((item) => item.linkedDecisionId === decisionId ? { ...item, assessedIteration: newRun.iteration } : item),
       grouperRuns: [...updatedCase.grouperRuns, newRun],
-    })
+    }
+    mutateCase(regroupedCase)
+    showIterationFeedback(decision.title, currentRun.drg, currentRun.iteration, regroupedCase, newRun)
     setRunningDecision(undefined)
   }
 
@@ -316,7 +351,6 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
       } : decision) : codingCase.decisions,
     }
     setRunningDecision(linkedDecisionId ?? documentId)
-    mutateCase(updatedCase)
     const newRun = await grouperClient.group(updatedCase, `${file.name} ${scope === 'event' ? 'einem Ereignis' : 'einem Verlauf'} zugeordnet`)
     mutateCase({
       ...updatedCase,
@@ -446,7 +480,6 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
         outcomeDimensions: { ...item.outcomeDimensions, kodierung: 'geprüft' },
       } : item),
     }
-    mutateCase(updatedCase)
     const newRun = await grouperClient.group(updatedCase, `Kodierung ${actionLabel}: ${input.type} ${input.code}`)
     mutateCase({
       ...updatedCase,
@@ -530,7 +563,6 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
       currentProcedures: activeProcedures.length ? activeProcedures.map((entry) => `${entry.code} · ${entry.description}`) : ['Keine aktive OPS-Kodierung'],
       codingEntries: updatedEntries,
     }
-    mutateCase(updatedCase)
     const newRun = await grouperClient.group(updatedCase, `Direkte Kodierung ${actionLabel}: ${input.type} ${input.code}`)
     mutateCase({
       ...updatedCase,
@@ -566,14 +598,15 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
         resolution: `${validatePrecode ? 'Vorkodierung validiert' : 'Durch Kodierfachkraft fachlich abgeschlossen'}: ${matchingEntries.filter((entry) => entry.active).map((entry) => `${entry.type} ${entry.code}`).join(', ')}${unprovenWorkCodes.length ? '. Arbeitskode ohne Dokument bleibt als vorläufig geprüft gekennzeichnet.' : '.'}`,
       } : item),
     }
-    mutateCase(updatedCase)
     const newRun = await grouperClient.group(updatedCase, `${validatePrecode ? 'Vorkodierung validiert' : 'Kodierentscheidung abgeschlossen'}: ${decision.title}`)
-    mutateCase({
+    const regroupedCase: CodingCase = {
       ...updatedCase,
       codingEntries: updatedCase.codingEntries.map((entry) => matchingIds.has(entry.id) ? { ...entry, assessedIteration: newRun.iteration } : entry),
       decisions: updatedCase.decisions.map((item) => ({ ...item, assessedIteration: newRun.iteration })),
       grouperRuns: [...updatedCase.grouperRuns, newRun],
-    })
+    }
+    mutateCase(regroupedCase)
+    showIterationFeedback(decision.title, currentRun.drg, currentRun.iteration, regroupedCase, newRun)
     setRunningDecision(undefined)
   }
 
@@ -607,33 +640,16 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
         }} onOpenDepartment={(eventId, documentId) => {
           setDocumentMapFocus({ eventId, documentId })
           setDocumentMapOpen(true)
-        }} onOpenDecision={(decisionId) => {
-          setActiveDecision(decisionId)
-          setActiveStep(3)
-        }} onUploadEventDocument={(eventId, files) => void handleContextDocumentUpload(eventId, files, 'event')} onUploadCourseDocument={(eventId, files) => void handleContextDocumentUpload(eventId, files, 'course')} />
+        }} onOpenDecision={openDecisionStep} onUploadEventDocument={(eventId, files) => void handleContextDocumentUpload(eventId, files, 'event')} onUploadCourseDocument={(eventId, files) => void handleContextDocumentUpload(eventId, files, 'course')} />
         <div className="case-map-secondary-actions">
           <button type="button" onClick={() => { setDocumentMapFocus({}); setDocumentMapOpen(true) }}><MapIcon aria-hidden="true" /> Dokumente und Kodes öffnen</button>
           <button type="button" onClick={() => setGrouperInputsOpen(true)}><Database aria-hidden="true" /> Grouper-Eingaben</button>
           <button type="button" onClick={() => setHistoryOpen(true)}><History aria-hidden="true" /> Iterationen</button>
-          <button type="button" onClick={() => setActiveStep(1)}>Weitere Fallbereiche <ArrowRight aria-hidden="true" /></button>
         </div>
+        {!firstOpenDecision && !finalOpen && <section className="workflow-ready-next"><span><Check aria-hidden="true" /></span><div><small>Keine weitere Pflichtprüfung</small><strong>DRG-Hypothese jetzt formal plausibilisieren</strong><p>{openAlternatives.length ? `${openAlternatives.length} optionale Pfade bleiben nachgeordnet und werden nur bei neuen Hinweisen geöffnet.` : 'Die ergebnisrelevanten Belegprüfungen sind abgeschlossen.'}</p></div><button className="button primary" type="button" onClick={() => setActiveStep(4)}>Zur Regelprüfung <ArrowRight aria-hidden="true" /></button></section>}
       </>}
 
-      {activeStep > 0 && activeStep !== 3 && <>
-        <nav className="coding-step-nav" aria-label="Kodierschritte">
-          {['Fall einordnen', 'Basis-DRG', 'Prüfungen', 'Kodierergebnis', 'Abschluss'].map((label, index) => {
-            const step = index + 1
-            return <button key={label} type="button" className={activeStep === step ? 'active' : ''} aria-current={activeStep === step ? 'step' : undefined} onClick={() => setActiveStep(step)}><span>{stepStates[index] ? <Check aria-hidden="true" /> : step}</span><strong>{label}</strong>{step === recommendedStep && activeStep !== step && <small>Empfohlen</small>}</button>
-          })}
-        </nav>
-        <div className="case-tools">
-          <button type="button" onClick={() => setActiveStep(0)}><ArrowLeft aria-hidden="true" /><span><strong>Zur Fallkarte</strong><small>Dokumente und Kodes am Behandlungsverlauf</small></span><ArrowRight aria-hidden="true" /></button>
-          <button type="button" onClick={() => setGrouperInputsOpen(true)}><Database aria-hidden="true" /><span><strong>Grouper-Eingaben</strong><small>Falldaten, Diagnosen und OPS mit Zeitpunkt</small></span><ArrowRight aria-hidden="true" /></button>
-          <button type="button" onClick={() => setHistoryOpen(true)}><History aria-hidden="true" /><span><strong>Iterationen</strong><small>{codingCase.grouperRuns.length} Grouper-Läufe · Historie bleibt erhalten</small></span><ArrowRight aria-hidden="true" /></button>
-        </div>
-      </>}
-
-      {documentMapOpen && <div className="fullscreen-backdrop" role="presentation" onMouseDown={() => setDocumentMapOpen(false)}><section className="fullscreen-detail" role="dialog" aria-modal="true" aria-label="Dokumentenlandkarte" onMouseDown={(event) => event.stopPropagation()}><div className="fullscreen-header"><div><div className="page-kicker">Second Screen · {codingCase.caseNumber}</div><h2>Dokumentenlandkarte</h2></div><button className="icon-button" type="button" aria-label="Schließen" onClick={() => setDocumentMapOpen(false)}><X aria-hidden="true" /></button></div><DocumentLandscape codingCase={codingCase} initialEventId={documentMapFocus.eventId} initialDocumentId={documentMapFocus.documentId} onOpenDecision={(decisionId) => { setActiveDecision(decisionId); setActiveStep(3); setDocumentMapOpen(false) }} onOpenCollaboration={(mode, decisionId) => setCollaboration({ mode, decisionId })} onConfirmReview={(documentId) => void confirmDocumentReview(documentId)} onOpenCodingEntry={setCodingEditorDocumentId} kisGuides={profile?.kisGuides ?? []} /></section></div>}
+      {documentMapOpen && <div className="fullscreen-backdrop" role="presentation" onMouseDown={() => setDocumentMapOpen(false)}><section className="fullscreen-detail" role="dialog" aria-modal="true" aria-label="Dokumentenlandkarte" onMouseDown={(event) => event.stopPropagation()}><div className="fullscreen-header"><div><div className="page-kicker">Dokumente · {codingCase.caseNumber}</div><h2>Dokumentenlandkarte</h2></div><button className="icon-button" type="button" aria-label="Schließen" onClick={() => setDocumentMapOpen(false)}><X aria-hidden="true" /></button></div><DocumentLandscape codingCase={codingCase} initialEventId={documentMapFocus.eventId} initialDocumentId={documentMapFocus.documentId} onOpenDecision={(decisionId) => { openDecisionStep(decisionId); setDocumentMapOpen(false) }} onOpenCollaboration={(mode, decisionId) => setCollaboration({ mode, decisionId })} onConfirmReview={(documentId) => void confirmDocumentReview(documentId)} onOpenCodingEntry={setCodingEditorDocumentId} onUploadEventDocument={(eventId, files) => void handleContextDocumentUpload(eventId, files, 'event')} onUploadCourseDocument={(eventId, files) => void handleContextDocumentUpload(eventId, files, 'course')} kisGuides={profile?.kisGuides ?? []} /></section></div>}
 
       <section className="validation-stage guided-step" aria-labelledby="validation-title" hidden={activeStep !== 1}>
         <div className="section-title-row">
@@ -705,16 +721,31 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
             <p><strong>Führender Pfad:</strong> {codingCase.scenario === 'pulmo-onko' ? 'Pulmologische Diagnostik → onkologische Therapie' : 'Konservative pneumologische Behandlung'}</p>
             <div className="code-row">{codingCase.currentProcedures.map((procedure) => <code key={procedure}>{procedure}</code>)}</div>
             <div className="grouper-note"><Sparkles aria-hidden="true" /><span>{currentRun.reason} PCCL {currentRun.pccL}.{currentRun.extras.map((extra) => ` ${extra}`)}</span></div>
-            {firstOpenDecision?.id === 'decision-main' && <button className="button primary" type="button" onClick={() => { setActiveDecision(firstOpenDecision.id); setActiveStep(3) }}>Hauptdiagnose belegen <ArrowRight aria-hidden="true" /></button>}
+            {firstOpenDecision?.id === 'decision-main' && <button className="button primary" type="button" onClick={() => openDecisionStep(firstOpenDecision.id)}>Hauptdiagnose belegen <ArrowRight aria-hidden="true" /></button>}
           </section>
 
           <section className="focused-decision-view" aria-labelledby="checks-title" hidden={activeStep !== 3}>
             <header className="focused-decision-nav">
-              <button type="button" onClick={() => setActiveStep(0)}><ArrowLeft aria-hidden="true" /> Zur Fallkarte</button>
-              <span>Prüfschritt {focusedDecision ? Math.max(1, openDecisions.findIndex((decision) => decision.id === focusedDecision.id) + 1) : 0} von {openDecisions.length}</span>
+              <button type="button" onClick={() => { setIterationFeedback(undefined); setActiveStep(0) }}><ArrowLeft aria-hidden="true" /> Zur Fallkarte</button>
+              <span>{iterationFeedback ? `Iteration ${iterationFeedback.currentIteration} ausgewertet` : 'Ein Prüfschritt im Fokus'}</span>
               <span>DRG {currentRun.drg}</span>
             </header>
-            {focusedDecision ? (
+            {iterationFeedback ? (
+              <article className="iteration-feedback-card" aria-labelledby="checks-title">
+                <span className="iteration-feedback-icon"><Check aria-hidden="true" /></span>
+                <div className="iteration-feedback-copy"><div className="page-kicker">Kodierentscheidung abgeschlossen</div><h2 id="checks-title">{iterationFeedback.title}</h2><p>Die Entscheidung wurde gespeichert und der Fall neu gruppiert. Der nächste Sachverhalt wird erst nach Deiner bewussten Auswahl geöffnet.</p></div>
+                <div className="iteration-drg-result">
+                  <span><small>Vorher · Iteration {iterationFeedback.previousIteration}</small><strong>{iterationFeedback.previousDrg}</strong></span>
+                  <ArrowRight aria-hidden="true" />
+                  <span><small>Jetzt · Iteration {iterationFeedback.currentIteration}</small><strong>{iterationFeedback.currentDrg}</strong></span>
+                  <b className={iterationFeedback.changed ? 'is-changed' : 'is-stable'}>{iterationFeedback.changed ? 'DRG geändert' : 'DRG bestätigt'}</b>
+                </div>
+                <div className="iteration-next-step">
+                  <div><small>Was folgt jetzt?</small><strong>{iterationFeedback.nextDecisionTitle ?? 'Keine weitere Pflichtprüfung'}</strong><p>{iterationFeedback.nextDecisionTitle ? 'Dieser Schritt hat unter den verbleibenden Pflichtprüfungen die höchste erwartete Ergebniswirkung.' : `${iterationFeedback.optionalOpen} optionale Pfade bleiben nachgeordnet und öffnen sich nur bei neuen Hinweisen.`}</p></div>
+                  <div><button className="button secondary" type="button" onClick={() => { setIterationFeedback(undefined); setActiveStep(0) }}>Ergebnis auf der Fallkarte ansehen</button><button className="button primary" type="button" onClick={() => iterationFeedback.nextDecisionId ? openDecisionStep(iterationFeedback.nextDecisionId) : (setIterationFeedback(undefined), setActiveStep(4))}>{iterationFeedback.nextDecisionId ? 'Nächsten Prüfschritt starten' : 'Zur Regelprüfung'} <ArrowRight aria-hidden="true" /></button></div>
+                </div>
+              </article>
+            ) : focusedDecision ? (
               <article className="focused-decision-card">
                 <div className="focused-decision-question">
                   <span className={`impact-marker impact-${focusedDecision.impact}`}><span className="sr-only">Auswirkung {focusedDecision.impact}</span></span>
@@ -744,14 +775,7 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
                 {openDecisions.length > 1 && (
                   <details className="remaining-decision-summary">
                     <summary>{openDecisions.length - 1} weitere offene Entscheidung{openDecisions.length === 2 ? '' : 'en'}</summary>
-                    <p>Sie werden erst nach Abschluss dieses Prüfschritts priorisiert. Bei Bedarf kannst Du gezielt wechseln.</p>
-                    <div className="remaining-decision-links">
-                      {openDecisions.filter((decision) => decision.id !== focusedDecision.id).map((decision) => (
-                        <button type="button" key={decision.id} onClick={() => setActiveDecision(decision.id)}>
-                          <span>{decision.title}</span><ArrowRight aria-hidden="true" />
-                        </button>
-                      ))}
-                    </div>
+                    <p>Sie werden erst nach dieser Grouperiteration neu priorisiert. So kann nicht versehentlich der falsche Sachverhalt validiert werden.</p>
                   </details>
                 )}
               </article>
@@ -759,36 +783,21 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
           </section>
 
           <section className="entitlement-section guided-step" aria-labelledby="entitlement-title" hidden={activeStep !== 4}>
-            <div className="section-title-row"><div><div className="page-kicker">Gruppierung und manuelle KIS-Übergabe</div><h2 id="entitlement-title">Kodierergebnis</h2></div><span>Änderungen zuerst · vollständige Liste bei Bedarf</span></div>
-            <button className="coding-transfer-entry" type="button" onClick={() => setCodingTransferOpen(true)}>
-              <span><FileCode2 aria-hidden="true" /></span>
-              <span><small>Kodierung für die KIS-Übernahme</small><strong>{activeCodingEntries.length} aktiv · {codingChanges.filter((entry) => entry.change === 'added').length} ergänzt · {codingChanges.filter((entry) => entry.change === 'changed').length} geändert · {codingChanges.filter((entry) => entry.change === 'deleted').length} gelöscht</strong><span>Zuerst nur Änderungen; vollständige ICD-/OPS-Liste jederzeit umschaltbar</span></span>
-              <span>Kodierergebnis öffnen <ArrowRight aria-hidden="true" /></span>
-            </button>
-            <button className="grouper-input-entry" type="button" onClick={() => setGrouperInputsOpen(true)}><Database aria-hidden="true" /><span><strong>Grouper-Eingaben nachvollziehen</strong><small>Aufnahme- und Entlassungsgrund, Alter, Gewicht, Beatmung, Fachabteilungen, ICD und OPS mit Leistungszeitpunkt</small></span><ArrowRight aria-hidden="true" /></button>
-            <div className="check-grid">
-              <CheckRow label="DRG" detail={`${currentRun.drg}, Basis ${currentRun.baseDrg}`} status="geprüft" />
-              <CheckRow label="Zusatzentgelte" detail={currentRun.extras[0] ?? 'Therapienachweis noch offen'} status={currentRun.extras.length ? 'geprüft' : 'offen'} />
-              <CheckRow label="NUB" detail={`${profile?.nubs.length ?? 0} Vereinbarungen am Standort`} status="geprüft" />
-              <CheckRow label="Komplexbehandlungen" detail={`${profile?.structures.length ?? 0} mögliche Strukturmerkmale`} status={openAlternatives.length ? 'offen' : 'geprüft'} />
-              <CheckRow label="Altersregeln" detail={`Alter bei Aufnahme: ${codingCase.age}`} status="geprüft" />
-              <CheckRow label="Hybrid-DRG" detail="Demo-Abgrenzung geprüft" status="geprüft" />
-            </div>
-            <section className="technical-values" aria-labelledby="technical-values-title">
-              <div className="section-title-row"><div><div className="page-kicker">Strukturierte Grouper-Eingaben</div><h3 id="technical-values-title">Technische Fallparameter</h3></div><span>{unresolvedTechnical.length} zu bestätigen</span></div>
-              {codingCase.technicalValues.length > 0 ? codingCase.technicalValues.map((value) => <TechnicalValueRow key={value.id} value={value} running={runningDecision === value.id} onResolve={(status, aggregateValue) => void resolveTechnicalValue(value.id, status, aggregateValue)} />) : <div className="technical-empty"><Check aria-hidden="true" /> Keine zusätzlichen technischen Werte importiert.</div>}
-            </section>
-            <button className="mbeg-check" type="button" onClick={() => setMbegOpen(true)}>
-              <span className={`check-icon ${codingCase.medicalJustification.reviewed ? 'done' : ''}`}><ShieldCheck aria-hidden="true" /></span>
-              <span><small>Optionaler Parallelpfad</small><strong>Medizinische Begründung vollstationär</strong><span>{codingCase.medicalJustification.reviewed ? 'Fachlich geprüft' : codingCase.medicalJustification.status === 'entwurf-belegbar' ? 'Entwurf belegbar' : 'Fachliche Prüfung nötig'}</span></span>
-              <ArrowRight aria-hidden="true" />
-            </button>
+            <button className="back-link" type="button" onClick={() => setActiveStep(0)}><ArrowLeft aria-hidden="true" /> Zur DRG-Hypothese</button>
+            <div className="section-title-row"><div><div className="page-kicker">Nach der DRG-Prüfschleife</div><h2 id="entitlement-title">Kodierregeln plausibilisieren.</h2></div><span className="status-pill status-wahrscheinlich">1 letzter Fachschritt</span></div>
+            <p className="lead rule-stage-lead">Jetzt wird die vollständige Kodierung gegen DKR sowie ICD-10-GM- und OPS-Systematik geprüft. Ändert sich ein gruppierungsrelevanter Kode, beginnt erneut eine DRG-Iteration.</p>
+            <article className="formal-rule-card">
+              <header><span><BookOpenCheck aria-hidden="true" /></span><div><small>Regelprüfung {codingCase.year}</small><strong>{activeCodingEntries.length} aktive Kodes · {codingCase.dkrMatches.length} passende DKR-Hinweise</strong></div><b>zu bestätigen</b></header>
+              <details className="quiet-details"><summary><span>Passende DKR-Hinweise ansehen</span><span>{codingCase.dkrMatches.length}<ChevronDown aria-hidden="true" /></span></summary><div className="dkr-list">{codingCase.dkrMatches.map((rule) => <div key={rule.id}><strong>{rule.title}</strong><p>{rule.relevance}</p></div>)}</div></details>
+              <div className="formal-rule-summary"><span><Check aria-hidden="true" /><strong>ICD-10-GM</strong><small>Haupt- und Nebendiagnosen auf Spezifität prüfen</small></span><span><Check aria-hidden="true" /><strong>OPS</strong><small>Leistungsdatum und Mindestmerkmale prüfen</small></span><span><Check aria-hidden="true" /><strong>DKR</strong><small>Fallbezogene Regeln auf die Gesamtkodierung anwenden</small></span></div>
+            </article>
+            {codingCase.technicalValues.length > 0 && <details className="quiet-details technical-rule-details" open={unresolvedTechnical.length > 0}><summary><span>Technische Grouper-Werte</span><span>{unresolvedTechnical.length} offen<ChevronDown aria-hidden="true" /></span></summary><section className="technical-values" aria-labelledby="technical-values-title"><h3 id="technical-values-title" className="sr-only">Technische Fallparameter</h3>{codingCase.technicalValues.map((value) => <TechnicalValueRow key={value.id} value={value} running={runningDecision === value.id} onResolve={(status, aggregateValue) => void resolveTechnicalValue(value.id, status, aggregateValue)} />)}</section></details>}
+            <div className="rule-secondary-actions"><button type="button" onClick={() => setCodingTransferOpen(true)}><FileCode2 aria-hidden="true" /><span><strong>Vollständige Kodierung</strong><small>{activeCodingEntries.filter((entry) => entry.type !== 'OPS').length} ICD · {activeCodingEntries.filter((entry) => entry.type === 'OPS').length} OPS</small></span><ArrowRight aria-hidden="true" /></button><button type="button" onClick={() => setGrouperInputsOpen(true)}><Database aria-hidden="true" /><span><strong>Grouper-Eingaben</strong><small>Sekundäre Falldaten bei Bedarf</small></span><ArrowRight aria-hidden="true" /></button><button type="button" onClick={() => setMbegOpen(true)}><ShieldCheck aria-hidden="true" /><span><strong>Medizinische Begründung</strong><small>Optional erstellen</small></span><ArrowRight aria-hidden="true" /></button></div>
+            <div className="rule-stage-footer"><span>Wenn eine Regelprüfung Kodes verändert, bitte erneut gruppieren.</span><button className="button primary" type="button" onClick={() => setActiveStep(5)}>Regelprüfung bestätigen <ArrowRight aria-hidden="true" /></button></div>
           </section>
         </div>
 
       </div>
-
-      {activeStep > 0 && activeStep < 5 && activeStep !== 3 && <div className="guided-step-footer"><button className="button secondary" type="button" onClick={() => activeStep === 1 ? setActiveStep(0) : setActiveStep((step) => Math.max(1, step - 1))}>{activeStep === 1 ? 'Zur Fallkarte' : 'Zurück'}</button><span>Schritt {activeStep} von 5</span><button className="button primary" type="button" onClick={() => setActiveStep((step) => Math.min(5, step + 1))}>Weiter <ArrowRight aria-hidden="true" /></button></div>}
 
       <div className="guided-step completion-step" hidden={activeStep !== 5}>
       {!finalOpen && <section className="completion-bar" aria-label="Fallabschluss">

@@ -210,14 +210,14 @@ function HypothesisCasePath({ codingCase, events, departments, documents, mode, 
   const activeEntries = codingCase.codingEntries.filter((entry) => entry.active)
   const openDecision = codingCase.decisions.find((decision) => decision.required && !['belegt', 'ausgeschlossen'].includes(decision.status))
   const relevantDocuments = documents.filter((document) => document.kind !== 'vorkodierung')
-  const focusDocument = intakeMode ? undefined : relevantDocuments.find((document) => document.linkedDecisionId === openDecision?.id && document.priority === 'jetzt')
-    ?? relevantDocuments.find((document) => getDocumentEvidenceStatus(document).bucket === 'relevant-action')
-  const focusEvent = intakeMode ? undefined : events.find((event) => focusDocument && event.linkedDocumentIds?.includes(focusDocument.id))
+  const focusDocument = intakeMode || !openDecision ? undefined : relevantDocuments.find((document) => document.linkedDecisionId === openDecision.id && document.priority === 'jetzt')
+    ?? relevantDocuments.find((document) => document.linkedDecisionId === openDecision.id && getDocumentEvidenceStatus(document).bucket === 'relevant-action')
+  const focusEvent = intakeMode || !openDecision ? undefined : events.find((event) => focusDocument && event.linkedDocumentIds?.includes(focusDocument.id))
     ?? events.find((event) => codingCase.codingEntries.some((entry) => entry.treatmentEventId === event.id && entry.reviewStatus !== 'belegt'))
     ?? events[0]
   const openRequired = codingCase.decisions.filter((decision) => decision.required && !['belegt', 'ausgeschlossen'].includes(decision.status)).length
   const relevantGaps = relevantDocuments.filter((document) => getDocumentEvidenceStatus(document).bucket === 'relevant-action').length
-  const openAlternatives = codingCase.decisions.filter((decision) => !['belegt', 'ausgeschlossen'].includes(decision.status)).length
+  const openAlternatives = codingCase.decisions.filter((decision) => !decision.required && !['belegt', 'ausgeschlossen'].includes(decision.status)).length
   const unvalidatedCodes = activeEntries.filter((entry) => entry.reviewStatus !== 'belegt').length
   const stability = openRequired === 0 ? 'hoch' : openRequired === 1 ? 'mittel' : 'niedrig'
   const evidenceSafety = relevantGaps === 0 ? 'hoch' : relevantGaps === 1 ? 'mittel' : 'niedrig'
