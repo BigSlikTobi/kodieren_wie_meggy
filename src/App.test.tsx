@@ -207,6 +207,7 @@ describe('Kodierpfad – geführter Arbeitsablauf', () => {
   it('führt einen Pool-Fall über dieselbe vorausgefüllte Fallbasis', async () => {
     const user = userEvent.setup()
     render(<App />)
+    expect(screen.getByText('12 Fälle aus dem Demo-Batch')).toBeInTheDocument()
     await user.type(screen.getByPlaceholderText(/Fallnummer eingeben/i), 'P-2026-004218')
     await user.click(screen.getByRole('button', { name: /Fallbasis prüfen/i }))
     expect(screen.getByRole('heading', { name: /Fall aus dem KIS übernehmen/i })).toBeInTheDocument()

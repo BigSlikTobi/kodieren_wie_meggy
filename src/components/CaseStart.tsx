@@ -101,6 +101,7 @@ export function CaseStart({ hospitals, batchRecord, onStart, onCancel }: CaseSta
       admissionDate: batchRecord?.admissionDate,
       dischargeDate: batchRecord?.dischargeDate,
       technicalValues: batchRecord?.technicalValues,
+      demoVariant: batchRecord?.demoVariant,
       manualTimeline: courseMethod === 'manuell' ? manualEvents : undefined,
       manualCodingEntries: codingMethod === 'manuell' ? parsedCoding : undefined,
     })

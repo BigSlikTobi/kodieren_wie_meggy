@@ -44,7 +44,12 @@ function normalizeData(value: AppData): AppData {
   const fresh = cloneInitialData()
   return {
     ...value,
-    batchCases: value.batchCases ?? fresh.batchCases,
+    batchCases: [
+      ...fresh.batchCases.map((freshRecord) => value.batchCases?.find((record) => record.id === freshRecord.id)
+        ? { ...freshRecord, ...value.batchCases.find((record) => record.id === freshRecord.id) }
+        : freshRecord),
+      ...(value.batchCases ?? []).filter((record) => !fresh.batchCases.some((freshRecord) => freshRecord.id === record.id)),
+    ],
     hospitals: value.hospitals.map((hospital) => ({
       ...hospital,
       profiles: hospital.profiles.map((profile) => {

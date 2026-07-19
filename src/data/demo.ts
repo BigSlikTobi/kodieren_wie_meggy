@@ -1,5 +1,6 @@
 import type { AppData, BatchCaseRecord, CaseDocument, CodingCase, CodingEntry, DocumentOutcomeDimensions, HospitalProfile, KisGuide, NewCaseInput, OutcomeDimensionStatus, RuleDefinition, TechnicalCaseValue } from '../types'
 import { getDrgLengthOfStayProfile } from './drgCatalog'
+import { applyDemoVariant, attachReadableDemoDocuments } from './demoVariants'
 
 const isoNow = () => new Date().toISOString()
 
@@ -242,6 +243,51 @@ export const demoBatchCases: BatchCaseRecord[] = [
     codingSummary: 'J18.9 · konservativer Verlauf · illustrative Demodaten',
     importStatus: 'bereit',
     technicalValues: [],
+  },
+  {
+    id: 'batch-4301', caseNumber: 'P-2026-004301', hospitalId: 'h-marien', siteId: 'marien-nord', year: 2026,
+    admissionDate: '2026-07-01', dischargeDate: '2026-07-08', age: 82, careForm: 'Normalstation', scenario: 'standard',
+    department: 'Notaufnahme → Unfallchirurgie', codingSummary: 'S72.0 · operative Frakturversorgung · OP-Bericht fehlt · Demo', importStatus: 'unvollständig', technicalValues: [], demoVariant: 'hip-fracture',
+  },
+  {
+    id: 'batch-4314', caseNumber: 'P-2026-004314', hospitalId: 'h-hanse', siteId: 'hanse-west', year: 2026,
+    admissionDate: '2026-07-03', dischargeDate: '2026-07-09', age: 76, careForm: 'Normalstation', scenario: 'standard',
+    department: 'Kardiologie → Überwachung', codingSummary: 'I25.12 · Herzkatheter · mehrere OPS-Ausprägungen · Demo', importStatus: 'bereit', technicalValues: [], demoVariant: 'cardiology-intervention',
+  },
+  {
+    id: 'batch-4327', caseNumber: 'P-2026-004327', hospitalId: 'h-marien', siteId: 'marien-mitte', year: 2026,
+    admissionDate: '2026-07-05', dischargeDate: '2026-07-09', age: 34, careForm: 'Normalstation', scenario: 'standard',
+    department: 'Notaufnahme → Allgemeinchirurgie', codingSummary: 'K35.8 · Appendektomie · früher Abschluss erwartet · Demo', importStatus: 'bereit', technicalValues: [], demoVariant: 'appendicitis',
+  },
+  {
+    id: 'batch-4340', caseNumber: 'P-2026-004340', hospitalId: 'h-hanse', siteId: 'hanse-west', year: 2026,
+    admissionDate: '2026-07-06', dischargeDate: '2026-07-19', age: 69, careForm: 'Normal- und Intensivstation', scenario: 'standard',
+    department: 'Innere Medizin → Intensivmedizin', codingSummary: 'Beatmungszeit widersprüchlich · Organersatz · Demo', importStatus: 'bereit', technicalValues: [ventilationIntervals], demoVariant: 'ventilation-conflict',
+  },
+  {
+    id: 'batch-4352', caseNumber: 'P-2026-004352', hospitalId: 'h-hanse', siteId: 'hanse-west', year: 2026,
+    admissionDate: '2026-07-07', dischargeDate: '2026-07-16', age: 71, careForm: 'Normalstation', scenario: 'standard',
+    department: 'Notaufnahme → Stroke Unit', codingSummary: 'I63.9 · Zeitfenster und Komplexbehandlung prüfen · Demo', importStatus: 'bereit', technicalValues: [], demoVariant: 'stroke-time-window',
+  },
+  {
+    id: 'batch-4366', caseNumber: 'P-2026-004366', hospitalId: 'h-marien', siteId: 'marien-mitte', year: 2026,
+    admissionDate: '2026-07-09', dischargeDate: '2026-07-12', age: 55, careForm: 'Normalstation', scenario: 'standard',
+    department: 'Urologie', codingSummary: 'N20.1 · Standardpfad · keine Änderung erwartet · Demo', importStatus: 'bereit', technicalValues: [], demoVariant: 'urology-standard',
+  },
+  {
+    id: 'batch-4381', caseNumber: 'P-2026-004381', hospitalId: 'h-hanse', siteId: 'hanse-west', year: 2026,
+    admissionDate: '2026-07-10', dischargeDate: '2026-08-04', age: 79, careForm: 'Normal- und Intensivstation', scenario: 'standard',
+    department: 'Herzchirurgie → Intensivmedizin → Kardiologie', codingSummary: '50 ICD · 30 OPS · pfadbestimmende Merkmale priorisieren · Demo', importStatus: 'bereit', technicalValues: [ventilationIntervals], demoVariant: 'high-volume',
+  },
+  {
+    id: 'batch-4395', caseNumber: 'P-2026-004395', hospitalId: 'h-marien', siteId: 'marien-nord', year: 2026,
+    admissionDate: '2026-07-11', dischargeDate: '2026-07-27', age: 88, careForm: 'Normalstation', scenario: 'standard',
+    department: 'Unfallchirurgie → Geriatrie', codingSummary: '8-550.x · Mindestmerkmalsnachweis fehlt · Demo', importStatus: 'unvollständig', technicalValues: [], demoVariant: 'geriatrics-proof',
+  },
+  {
+    id: 'batch-4408', caseNumber: 'P-2026-004408', hospitalId: 'h-marien', siteId: 'marien-mitte', year: 2026,
+    admissionDate: '2026-07-12', dischargeDate: '2026-07-23', age: 63, careForm: 'Normal- und Intensivstation', scenario: 'standard',
+    department: 'Innere Medizin → Intensivmedizin', codingSummary: 'A41.9 · Erregerbezug und Organdysfunktion prüfen · Demo', importStatus: 'bereit', technicalValues: [], demoVariant: 'sepsis-pathogen',
   },
 ]
 
@@ -669,7 +715,7 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
     return document
   })
 
-  return {
+  const baseCase: CodingCase = {
     id,
     caseNumber: input.caseNumber ?? `MAN-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`,
     label: isComplex ? 'Pulmologisch-onkologischer Demofall' : 'Standardnaher Pneumologie-Demofall',
@@ -858,6 +904,7 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
         },
     createdAt: isoNow(),
   }
+  return attachReadableDemoDocuments(applyDemoVariant(baseCase, input.demoVariant))
 }
 
 export const initialData: AppData = {

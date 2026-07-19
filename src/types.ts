@@ -84,7 +84,19 @@ export interface BatchCaseRecord {
   codingSummary: string
   importStatus: 'bereit' | 'unvollständig' | 'geöffnet'
   technicalValues: TechnicalCaseValue[]
+  demoVariant?: DemoCaseVariant
 }
+
+export type DemoCaseVariant =
+  | 'hip-fracture'
+  | 'cardiology-intervention'
+  | 'appendicitis'
+  | 'ventilation-conflict'
+  | 'stroke-time-window'
+  | 'urology-standard'
+  | 'high-volume'
+  | 'geriatrics-proof'
+  | 'sepsis-pathogen'
 
 export interface TreatmentEvent {
   id: string
@@ -382,4 +394,5 @@ export interface NewCaseInput {
     code: string
     description: string
   }>
+  demoVariant?: DemoCaseVariant
 }
