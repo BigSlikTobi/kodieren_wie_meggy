@@ -1,35 +1,38 @@
 import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { ArrowRight, Check, FileCode2, FileText, Hospital, Image, ListPlus, Upload } from 'lucide-react'
-import type { CodingEntryType, HospitalProfile, IntakeSource, NewCaseInput, TreatmentEvent } from '../types'
+import type { BatchCaseRecord, CodingEntryType, HospitalProfile, IntakeSource, NewCaseInput, TreatmentEvent } from '../types'
 import { CaseJourney } from './CaseJourney'
 
 interface CaseStartProps {
   hospitals: HospitalProfile[]
+  batchRecord?: BatchCaseRecord
   onStart: (input: NewCaseInput) => void
+  onCancel: () => void
 }
 
 type CourseMethod = 'arztbrief' | 'screenshot' | 'datenimport' | 'manuell'
 type CodingMethod = 'datenimport' | 'screenshot' | 'manuell'
 
-export function CaseStart({ hospitals, onStart }: CaseStartProps) {
-  const firstHospital = hospitals[0]
+export function CaseStart({ hospitals, batchRecord, onStart, onCancel }: CaseStartProps) {
+  const firstHospital = hospitals.find((item) => item.id === batchRecord?.hospitalId) ?? hospitals[0]
+  const batchStayDays = batchRecord ? Math.max(1, Math.round((new Date(`${batchRecord.dischargeDate}T12:00:00`).getTime() - new Date(`${batchRecord.admissionDate}T12:00:00`).getTime()) / 86_400_000) + 1) : undefined
   const [step, setStep] = useState(1)
-  const [caseNumber, setCaseNumber] = useState('P-2026-004260')
+  const [caseNumber, setCaseNumber] = useState(batchRecord?.caseNumber ?? '')
   const [hospitalId, setHospitalId] = useState(firstHospital?.id ?? '')
   const hospital = hospitals.find((item) => item.id === hospitalId)
   const uniqueSites = useMemo(() => Array.from(new Map((hospital?.profiles ?? []).map((profile) => [profile.siteId, profile])).values()), [hospital])
-  const [siteId, setSiteId] = useState(firstHospital?.profiles[0]?.siteId ?? '')
+  const [siteId, setSiteId] = useState(batchRecord?.siteId ?? firstHospital?.profiles[0]?.siteId ?? '')
   const availableYears = useMemo(() => (hospital?.profiles ?? []).filter((profile) => profile.siteId === siteId).map((profile) => profile.year), [hospital, siteId])
-  const [year, setYear] = useState(firstHospital?.profiles[0]?.year ?? 2026)
-  const [age, setAge] = useState(67)
-  const [stayDays, setStayDays] = useState(22)
-  const [careForm, setCareForm] = useState<NewCaseInput['careForm']>('Normalstation')
-  const [scenario, setScenario] = useState<NewCaseInput['scenario']>('pulmo-onko')
-  const [courseMethod, setCourseMethod] = useState<CourseMethod>('arztbrief')
+  const [year, setYear] = useState(batchRecord?.year ?? firstHospital?.profiles[0]?.year ?? 2026)
+  const [age, setAge] = useState(batchRecord?.age ?? 67)
+  const [stayDays, setStayDays] = useState(batchStayDays ?? 22)
+  const [careForm, setCareForm] = useState<NewCaseInput['careForm']>(batchRecord?.careForm ?? 'Normalstation')
+  const [scenario, setScenario] = useState<NewCaseInput['scenario']>(batchRecord?.scenario ?? 'pulmo-onko')
+  const [courseMethod, setCourseMethod] = useState<CourseMethod>(batchRecord ? 'datenimport' : 'arztbrief')
   const [codingMethod, setCodingMethod] = useState<CodingMethod>('datenimport')
-  const [courseFiles, setCourseFiles] = useState<string[]>(['entlassungsbericht.pdf'])
-  const [codingFiles, setCodingFiles] = useState<string[]>(['aktuelle_kodierung.csv'])
+  const [courseFiles, setCourseFiles] = useState<string[]>(batchRecord?.importStatus === 'bereit' ? ['Behandlungsverlauf aus Batch-Vorlauf'] : [])
+  const [codingFiles, setCodingFiles] = useState<string[]>(batchRecord ? [`KIS-Vorkodierung · ${batchRecord.codingSummary}`] : [])
   const [manualEvents, setManualEvents] = useState<TreatmentEvent[]>([])
   const [eventDay, setEventDay] = useState(2)
   const [eventDepartment, setEventDepartment] = useState('Pneumologie')
@@ -88,12 +91,16 @@ export function CaseStart({ hospitals, onStart }: CaseStartProps) {
     if (!validBase || !courseReady || !codingReady) return
     const now = new Date().toISOString()
     const intakeSources: IntakeSource[] = [
+      ...(batchRecord ? [{ id: `source-${batchRecord.id}`, kind: 'batch' as const, label: 'Krankenhaus-Batch', status: 'importiert' as const, detail: 'Fallnummer, Falldaten, Vorkodierung und technische Werte wurden strukturiert übernommen.', addedAt: now }] : []),
       ...sourceEntries(courseMethod, courseMethod === 'manuell' ? [`${manualEvents.length} manuelle Ereignisse`] : courseFiles, 'Behandlungsverlauf', now),
       ...sourceEntries(codingMethod === 'datenimport' ? 'kodierung' : codingMethod, codingMethod === 'manuell' ? [`${parsedCoding.length} manuelle Kodes`] : codingFiles, 'KIS-Ausgangskodierung', now),
     ]
     onStart({
       caseNumber: caseNumber.trim(), hospitalId, siteId, year, age, stayDays, careForm, scenario,
       files: [...courseFiles, ...codingFiles], intakeSources,
+      admissionDate: batchRecord?.admissionDate,
+      dischargeDate: batchRecord?.dischargeDate,
+      technicalValues: batchRecord?.technicalValues,
       manualTimeline: courseMethod === 'manuell' ? manualEvents : undefined,
       manualCodingEntries: codingMethod === 'manuell' ? parsedCoding : undefined,
     })
@@ -102,9 +109,9 @@ export function CaseStart({ hospitals, onStart }: CaseStartProps) {
   return (
     <div className="page narrow-page calm-start-page">
       <CaseJourney active="kis" />
-      <div className="page-kicker">Neuer Fall · Schritt {step} von 3</div>
+      <div className="page-kicker">{batchRecord ? 'Pool-Fall vorausgefüllt' : 'Einzelfall anlegen'} · Schritt {step} von 3</div>
       <h1>Fall aus dem KIS übernehmen.</h1>
-      <p className="lead">Zuerst den Fall eindeutig zuordnen. Danach werden Behandlungsverlauf und aktuelle KIS-Kodierung getrennt übernommen.</p>
+      <p className="lead">{batchRecord ? 'Die bekannten KIS-Daten sind vorausgefüllt. Prüfe sie und ergänze nur, was für Behandlungsverlauf und Ausgangskodierung noch fehlt.' : 'Zuerst den Fall eindeutig zuordnen. Danach werden Behandlungsverlauf und aktuelle KIS-Kodierung getrennt übernommen.'}</p>
 
       <ol className="stepper" aria-label="Fallstart Fortschritt">
         {['Fall zuordnen', 'Fallbasis übernehmen', 'Prüfen'].map((label, index) => (
@@ -174,7 +181,7 @@ export function CaseStart({ hospitals, onStart }: CaseStartProps) {
       )}
 
       <div className="button-row between">
-        <button className="button secondary" type="button" disabled={step === 1} onClick={() => { setTouched(false); setStep((current) => current - 1) }}>Zurück</button>
+        <button className="button secondary" type="button" onClick={() => { setTouched(false); if (step === 1) onCancel(); else setStep((current) => current - 1) }}>{step === 1 ? 'Zum Fallpool' : 'Zurück'}</button>
         {step < 3 ? <button className="button primary" type="button" onClick={next}>Weiter <ArrowRight aria-hidden="true" /></button> : <button className="button primary" type="button" onClick={submit}>Fallbasis prüfen <ArrowRight aria-hidden="true" /></button>}
       </div>
     </div>

@@ -9,7 +9,7 @@ import { RulesView } from './components/RulesView'
 import { createDemoCase } from './data/demo'
 import { MockGrouperClient } from './services/grouper'
 import { usePersistentData } from './store'
-import type { AppData, BatchCaseRecord, IntakeSource, NewCaseInput, TreatmentEvent, View } from './types'
+import type { AppData, BatchCaseRecord, NewCaseInput, TreatmentEvent, View } from './types'
 
 const grouperClient = new MockGrouperClient()
 
@@ -20,6 +20,7 @@ export default function App() {
     return current ? (current.intakeConfirmed ? 'case' : 'intake') : 'worklist'
   })
   const [resetOpen, setResetOpen] = useState(false)
+  const [pendingBatchRecord, setPendingBatchRecord] = useState<BatchCaseRecord>()
   const currentCase = useMemo(
     () => data.cases.find((codingCase) => codingCase.id === data.currentCaseId),
     [data.cases, data.currentCaseId],
@@ -34,8 +35,10 @@ export default function App() {
     setData((current) => ({
       ...current,
       cases: [...current.cases, codingCase],
+      batchCases: pendingBatchRecord ? current.batchCases.map((item) => item.id === pendingBatchRecord.id ? { ...item, importStatus: 'geöffnet' } : item) : current.batchCases,
       currentCaseId: codingCase.id,
     }))
+    setPendingBatchRecord(undefined)
     setView('intake')
   }
 
@@ -46,21 +49,21 @@ export default function App() {
       setView(existing.intakeConfirmed ? 'case' : 'intake')
       return
     }
-    const stayDays = Math.max(1, Math.round((new Date(`${record.dischargeDate}T12:00:00`).getTime() - new Date(`${record.admissionDate}T12:00:00`).getTime()) / 86_400_000) + 1)
-    const batchSource: IntakeSource = { id: `source-${record.id}`, kind: 'batch', label: 'Krankenhaus-Batch', status: 'importiert', detail: 'Fallnummer, Aufnahme, Entlassung, Vorkodierung und technische Werte wurden strukturiert übernommen.', addedAt: new Date().toISOString() }
-    const codingCase = createDemoCase({ caseNumber: record.caseNumber, hospitalId: record.hospitalId, siteId: record.siteId, year: record.year, admissionDate: record.admissionDate, dischargeDate: record.dischargeDate, age: record.age, stayDays, careForm: record.careForm, scenario: record.scenario, files: [], technicalValues: record.technicalValues, intakeSources: [batchSource] })
-    setData((current) => ({
-      ...current,
-      cases: [...current.cases, codingCase],
-      batchCases: current.batchCases.map((item) => item.id === record.id ? { ...item, importStatus: 'geöffnet' } : item),
-      currentCaseId: codingCase.id,
-    }))
-    setView('intake')
+    setData((current) => ({ ...current, currentCaseId: undefined }))
+    setPendingBatchRecord(record)
+    setView('start')
+  }
+
+  const createNewCase = () => {
+    setPendingBatchRecord(undefined)
+    setData((current) => ({ ...current, currentCaseId: undefined }))
+    setView('start')
   }
 
   const updateData = (updater: (current: AppData) => AppData) => setData(updater)
 
   const newCase = () => {
+    setPendingBatchRecord(undefined)
     setData((current) => ({ ...current, currentCaseId: undefined }))
     setView('worklist')
   }
@@ -74,6 +77,7 @@ export default function App() {
 
   const confirmReset = () => {
     reset()
+    setPendingBatchRecord(undefined)
     setResetOpen(false)
     setView('start')
   }
@@ -105,8 +109,8 @@ export default function App() {
       </header>
 
       <main>
-        {view === 'worklist' && <CasePool cases={data.batchCases} hospitals={data.hospitals} onOpen={openBatchCase} onCreate={() => setView('start')} />}
-        {view === 'start' && <CaseStart hospitals={data.hospitals} onStart={startCase} />}
+        {view === 'worklist' && <CasePool cases={data.batchCases} codingCases={data.cases} hospitals={data.hospitals} onOpen={openBatchCase} onCreate={createNewCase} />}
+        {view === 'start' && <CaseStart key={pendingBatchRecord?.id ?? 'new-case'} hospitals={data.hospitals} batchRecord={pendingBatchRecord} onStart={startCase} onCancel={newCase} />}
         {view === 'intake' && currentCase && (
           <CaseIntake
             codingCase={currentCase}
@@ -127,7 +131,7 @@ export default function App() {
             onNewCase={newCase}
           />
         )}
-        {view === 'case' && !currentCase && <CasePool cases={data.batchCases} hospitals={data.hospitals} onOpen={openBatchCase} onCreate={() => setView('start')} />}
+        {view === 'case' && !currentCase && <CasePool cases={data.batchCases} codingCases={data.cases} hospitals={data.hospitals} onOpen={openBatchCase} onCreate={createNewCase} />}
         {view === 'hospitals' && <HospitalsView data={data} onDataChange={updateData} />}
         {view === 'rules' && <RulesView data={data} onDataChange={updateData} />}
       </main>

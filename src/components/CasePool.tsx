@@ -1,16 +1,17 @@
 import { ArrowRight, Building2, CalendarDays, Database, FilePlus2, Search, Stethoscope } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import type { BatchCaseRecord, HospitalProfile } from '../types'
+import type { BatchCaseRecord, CodingCase, HospitalProfile } from '../types'
 import { CaseJourney } from './CaseJourney'
 
 interface CasePoolProps {
   cases: BatchCaseRecord[]
+  codingCases: CodingCase[]
   hospitals: HospitalProfile[]
   onOpen: (record: BatchCaseRecord) => void
   onCreate: () => void
 }
 
-export function CasePool({ cases, hospitals, onOpen, onCreate }: CasePoolProps) {
+export function CasePool({ cases, codingCases, hospitals, onOpen, onCreate }: CasePoolProps) {
   const [query, setQuery] = useState('')
   const [hospitalId, setHospitalId] = useState('all')
   const filtered = useMemo(() => cases.filter((record) => {
@@ -39,6 +40,14 @@ export function CasePool({ cases, hospitals, onOpen, onCreate }: CasePoolProps) 
         {filtered.map((record) => {
           const hospital = hospitals.find((item) => item.id === record.hospitalId)
           const profile = hospital?.profiles.find((item) => item.siteId === record.siteId && item.year === record.year)
+          const codingCase = codingCases.find((item) => item.caseNumber === record.caseNumber)
+          const state = codingCase?.intakeConfirmed
+            ? { label: 'Fallbasis bereits bestätigt', className: 'belegt', action: 'Prüfpfad fortsetzen' }
+            : codingCase
+              ? { label: 'Fallbasis in Prüfung', className: 'ungeklärt', action: 'Fallbasis fortsetzen' }
+              : record.importStatus === 'bereit'
+                ? { label: 'Fallbasis vorausgefüllt', className: 'belegt', action: 'Fallbasis prüfen' }
+                : { label: 'Fallbasis ergänzen', className: 'ungeklärt', action: 'Fallbasis ergänzen' }
           return (
             <article className="pool-case" key={record.id}>
               <div className="pool-case-number"><span><Stethoscope aria-hidden="true" /></span><div><small>Fallnummer</small><strong>{record.caseNumber}</strong></div></div>
@@ -49,10 +58,10 @@ export function CasePool({ cases, hospitals, onOpen, onCreate }: CasePoolProps) 
                 <small>{record.codingSummary}</small>
               </div>
               <div className="pool-case-state">
-                <span className={`status-pill status-${record.importStatus === 'bereit' ? 'belegt' : 'ungeklärt'}`}>{record.importStatus === 'bereit' ? 'Fallbasis bereit' : 'Fallbasis prüfen'}</span>
+                <span className={`status-pill status-${state.className}`}>{state.label}</span>
                 <small>{record.technicalValues.length} technische Werte</small>
               </div>
-              <button className="button primary" type="button" onClick={() => onOpen(record)}>Fallbasis öffnen <ArrowRight aria-hidden="true" /></button>
+              <button className="button primary" type="button" onClick={() => onOpen(record)}>{state.action} <ArrowRight aria-hidden="true" /></button>
             </article>
           )
         })}
