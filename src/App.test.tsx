@@ -6,7 +6,10 @@ import App from './App'
 
 async function openManualIntake(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: /Einzelfall anlegen/i }))
+  await user.type(screen.getByLabelText(/Fallnummer/i), 'P-2026-009999')
   await user.click(screen.getByRole('button', { name: /Weiter/i }))
+  await user.upload(screen.getByLabelText(/Arzt- oder Entlassungsbericht auswählen/i), new File(['bericht'], 'entlassungsbericht.pdf', { type: 'application/pdf' }))
+  await user.upload(screen.getByLabelText(/KIS-Kodierexport auswählen/i), new File(['kodierung'], 'aktuelle-kodierung.csv', { type: 'text/csv' }))
   await user.click(screen.getByRole('button', { name: /Weiter/i }))
   await user.click(screen.getByRole('button', { name: /Fallbasis prüfen/i }))
 }
@@ -41,9 +44,13 @@ describe('Kodierpfad – geführter Arbeitsablauf', () => {
     expect(screen.queryByText(/Strukturmerkmale/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/NUB-Vereinbarungen/i)).not.toBeInTheDocument()
 
+    await user.type(screen.getByLabelText(/Fallnummer/i), 'P-2026-009999')
     await user.click(screen.getByRole('button', { name: /Weiter/i }))
     expect(screen.getByRole('heading', { name: /Behandlungsverlauf erstellen/i })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /Aktuelle KIS-Kodierung übernehmen/i })).toBeInTheDocument()
+    expect(screen.getAllByText('Noch offen')).toHaveLength(2)
+    await user.upload(screen.getByLabelText(/Arzt- oder Entlassungsbericht auswählen/i), new File(['bericht'], 'entlassungsbericht.pdf', { type: 'application/pdf' }))
+    await user.upload(screen.getByLabelText(/KIS-Kodierexport auswählen/i), new File(['kodierung'], 'aktuelle-kodierung.csv', { type: 'text/csv' }))
     expect(screen.getAllByText('Vorhanden')).toHaveLength(2)
 
     await user.click(screen.getByRole('button', { name: /Weiter/i }))
@@ -62,6 +69,7 @@ describe('Kodierpfad – geführter Arbeitsablauf', () => {
     const user = userEvent.setup()
     render(<App />)
     await user.click(screen.getByRole('button', { name: /Einzelfall anlegen/i }))
+    await user.type(screen.getByLabelText(/Fallnummer/i), 'P-2026-009998')
     await user.click(screen.getByRole('button', { name: /Weiter/i }))
 
     const courseCard = screen.getByRole('heading', { name: /Behandlungsverlauf erstellen/i }).closest('article')!
@@ -196,15 +204,27 @@ describe('Kodierpfad – geführter Arbeitsablauf', () => {
     expect(within(dialog).getByText(/Pneumologie → Onkologie/i)).toBeInTheDocument()
   })
 
-  it('öffnet einen Batch-Fall und verlangt dieselben zwei Bestätigungen', async () => {
+  it('führt einen Pool-Fall über dieselbe vorausgefüllte Fallbasis', async () => {
     const user = userEvent.setup()
     render(<App />)
-    await user.type(screen.getByPlaceholderText(/Fallnummer eingeben/i), 'P-2026-004233')
-    await user.click(screen.getByRole('button', { name: /Fallbasis öffnen/i }))
-    expect(screen.getByText(/Fallbasis · P-2026-004233/i)).toBeInTheDocument()
+    await user.type(screen.getByPlaceholderText(/Fallnummer eingeben/i), 'P-2026-004218')
+    await user.click(screen.getByRole('button', { name: /Fallbasis prüfen/i }))
+    expect(screen.getByRole('heading', { name: /Fall aus dem KIS übernehmen/i })).toBeInTheDocument()
+    expect(screen.getByDisplayValue('P-2026-004218')).toBeInTheDocument()
+    expect(screen.getByText(/Pool-Fall vorausgefüllt/i)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    expect(screen.getAllByText('Vorhanden')).toHaveLength(2)
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await user.click(screen.getByRole('button', { name: /Fallbasis prüfen/i }))
+    expect(screen.getByText(/Fallbasis · P-2026-004218/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Ausgangskodierung bestätigen/i })).toBeDisabled()
     await user.click(screen.getByRole('button', { name: /Verlauf bestätigen/i }))
     await user.click(screen.getByRole('button', { name: /Ausgangskodierung bestätigen/i }))
     expect(screen.getByRole('button', { name: /Erste DRG-Iteration starten/i })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: /Erste DRG-Iteration starten/i }))
+    await user.click(screen.getByRole('button', { name: /Fall wechseln/i }))
+    expect(screen.getByText('Fallbasis bereits bestätigt')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Prüfpfad fortsetzen/i })).toBeInTheDocument()
   })
 })
