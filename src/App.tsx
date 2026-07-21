@@ -87,7 +87,7 @@ export default function App() {
       <header className="app-header">
         <button className="brand" type="button" onClick={goToFallHome}>
           <span className="brand-mark"><Route aria-hidden="true" /></span>
-          <span>Kodierpfad <small>Machbarkeitsprototyp</small></span>
+          <span>Kodierpfad <small>Version 26 · Hypothesenarbeitsplatz</small></span>
         </button>
         <nav className="main-nav" aria-label="Hauptnavigation">
           <button className={['worklist', 'start', 'intake', 'case'].includes(view) ? 'active' : ''} type="button" onClick={goToFallHome}>

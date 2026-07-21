@@ -33,6 +33,8 @@ export function CaseStart({ hospitals, batchRecord, onStart, onCancel }: CaseSta
   const [codingMethod, setCodingMethod] = useState<CodingMethod>('datenimport')
   const [courseFiles, setCourseFiles] = useState<string[]>(batchRecord?.importStatus === 'bereit' ? ['Behandlungsverlauf aus Batch-Vorlauf'] : [])
   const [codingFiles, setCodingFiles] = useState<string[]>(batchRecord ? [`KIS-Vorkodierung · ${batchRecord.codingSummary}`] : [])
+  const [courseReplaceOpen, setCourseReplaceOpen] = useState(false)
+  const [codingReplaceOpen, setCodingReplaceOpen] = useState(false)
   const [manualEvents, setManualEvents] = useState<TreatmentEvent[]>([])
   const [eventDay, setEventDay] = useState(2)
   const [eventDepartment, setEventDepartment] = useState('Pneumologie')
@@ -142,7 +144,7 @@ export function CaseStart({ hospitals, batchRecord, onStart, onCancel }: CaseSta
       {step === 2 && (
         <section className="source-pair" aria-label="Fallbasis übernehmen">
           <SourceCard number="1" title="Behandlungsverlauf erstellen" description="Mindestens ein Arzt- oder Entlassungsbericht – alternativ Screenshot, Datenimport oder manuelle Ereignisse." ready={courseReady}>
-            <div className="source-methods" role="group" aria-label="Quelle für Behandlungsverlauf">
+            {batchRecord && courseReady && !courseReplaceOpen ? <ExistingSourceSummary title="Behandlungsverlauf bereits übernommen" detail={`${courseFiles.length} strukturierte Quelle · ${batchRecord.department}`} onReplace={() => { setCourseFiles([]); setCourseMethod('arztbrief'); setCourseReplaceOpen(true) }} /> : <><div className="source-methods" role="group" aria-label="Quelle für Behandlungsverlauf">
               <MethodButton active={courseMethod === 'arztbrief'} icon={<FileText aria-hidden="true" />} label="Arztbrief" onClick={() => setCourseMethod('arztbrief')} />
               <MethodButton active={courseMethod === 'screenshot'} icon={<Image aria-hidden="true" />} label="Screenshot" onClick={() => setCourseMethod('screenshot')} />
               <MethodButton active={courseMethod === 'datenimport'} icon={<Upload aria-hidden="true" />} label="Datenimport" onClick={() => setCourseMethod('datenimport')} />
@@ -155,16 +157,16 @@ export function CaseStart({ hospitals, batchRecord, onStart, onCancel }: CaseSta
                 <button className="button secondary" type="button" onClick={addManualEvent} disabled={!eventLabel.trim()}><ListPlus aria-hidden="true" /> Ereignis hinzufügen</button>
                 {manualEvents.length > 0 && <ol className="manual-preview-list">{manualEvents.map((event) => <li key={event.id}><span>Tag {event.day}</span><strong>{event.label}</strong><button type="button" onClick={() => setManualEvents((current) => current.filter((item) => item.id !== event.id))}>Entfernen</button></li>)}</ol>}
               </div>
-            ) : <UploadField label={courseMethod === 'arztbrief' ? 'Arzt- oder Entlassungsbericht auswählen' : courseMethod === 'screenshot' ? 'Screenshot auswählen' : 'Verlaufsdaten auswählen'} files={courseFiles} onFiles={(files) => handleFiles(files, 'course')} />}
+            ) : <UploadField label={courseMethod === 'arztbrief' ? 'Arzt- oder Entlassungsbericht auswählen' : courseMethod === 'screenshot' ? 'Screenshot auswählen' : 'Verlaufsdaten auswählen'} files={courseFiles} onFiles={(files) => handleFiles(files, 'course')} />}</>}
           </SourceCard>
 
           <SourceCard number="2" title="Aktuelle KIS-Kodierung übernehmen" description="Der Grouper startet immer mit der tatsächlich im KIS vorhandenen HD, den ND und OPS." ready={codingReady}>
-            <div className="source-methods" role="group" aria-label="Quelle für KIS-Ausgangskodierung">
+            {batchRecord && codingReady && !codingReplaceOpen ? <ExistingSourceSummary title="KIS-Ausgangskodierung bereits übernommen" detail={batchRecord.codingSummary} onReplace={() => { setCodingFiles([]); setCodingMethod('datenimport'); setCodingReplaceOpen(true) }} /> : <><div className="source-methods" role="group" aria-label="Quelle für KIS-Ausgangskodierung">
               <MethodButton active={codingMethod === 'datenimport'} icon={<Upload aria-hidden="true" />} label="Datenexport" onClick={() => setCodingMethod('datenimport')} />
               <MethodButton active={codingMethod === 'screenshot'} icon={<Image aria-hidden="true" />} label="Screenshot" onClick={() => setCodingMethod('screenshot')} />
               <MethodButton active={codingMethod === 'manuell'} icon={<FileCode2 aria-hidden="true" />} label="Manuell" onClick={() => setCodingMethod('manuell')} />
             </div>
-            {codingMethod === 'manuell' ? <label className="manual-code-entry">Kodes aus dem KIS<textarea value={manualCoding} onChange={(event) => setManualCoding(event.target.value)} rows={6} /><small>Eine Zeile pro Kode: HD, ND oder OPS · Kode · optionale Bezeichnung</small><span>{parsedCoding.length} Kodes erkannt</span></label> : <UploadField label={codingMethod === 'screenshot' ? 'Screenshot der Kodierung auswählen' : 'KIS-Kodierexport auswählen'} files={codingFiles} onFiles={(files) => handleFiles(files, 'coding')} />}
+            {codingMethod === 'manuell' ? <label className="manual-code-entry">Kodes aus dem KIS<textarea value={manualCoding} onChange={(event) => setManualCoding(event.target.value)} rows={6} /><small>Eine Zeile pro Kode: HD, ND oder OPS · Kode · optionale Bezeichnung</small><span>{parsedCoding.length} Kodes erkannt</span></label> : <UploadField label={codingMethod === 'screenshot' ? 'Screenshot der Kodierung auswählen' : 'KIS-Kodierexport auswählen'} files={codingFiles} onFiles={(files) => handleFiles(files, 'coding')} />}</>}
           </SourceCard>
           {touched && (!courseReady || !codingReady) && <p className="error-text">Für den nächsten Schritt werden sowohl ein Behandlungsverlauf als auch die aktuelle KIS-Kodierung benötigt.</p>}
         </section>
@@ -195,6 +197,10 @@ function SourceCard({ number, title, description, ready, children }: { number: s
 
 function MethodButton({ active, icon, label, onClick }: { active: boolean; icon: ReactNode; label: string; onClick: () => void }) {
   return <button className={active ? 'source-method active' : 'source-method'} type="button" aria-pressed={active} onClick={onClick}>{icon}<span>{label}</span></button>
+}
+
+function ExistingSourceSummary({ title, detail, onReplace }: { title: string; detail: string; onReplace: () => void }) {
+  return <div className="existing-source-summary"><span><Check aria-hidden="true" /></span><span><strong>{title}</strong><small>{detail}</small><em>Die vorhandene Quelle wird verwendet. Wähle „Ersetzen“ nur, wenn der KIS-Ausgangsstand nicht stimmt.</em></span><button className="button secondary" type="button" onClick={onReplace}>Quelle ersetzen</button></div>
 }
 
 function UploadField({ label, files, onFiles }: { label: string; files: string[]; onFiles: (files: FileList | null) => void }) {

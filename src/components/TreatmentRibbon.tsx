@@ -342,7 +342,7 @@ function HypothesisCasePath({ codingCase, events, departments, documents, mode, 
             })}
           </div>
         </div>
-        <details className="case-map-legend-toggle" open>
+        <details className="case-map-legend-toggle" open={intakeMode}>
           <summary>Legende <ChevronDown aria-hidden="true" /></summary>
           <div className="case-map-legend" aria-label="Legende">
             {intakeMode ? <>

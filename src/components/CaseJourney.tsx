@@ -1,6 +1,6 @@
-import { Check, FileCheck2, Hospital, Route, Send } from 'lucide-react'
+import { BookOpenCheck, Check, FileCheck2, Hospital, Route, Send } from 'lucide-react'
 
-export type CaseJourneyPhase = 'kis' | 'basis' | 'hypothesis' | 'handoff'
+export type CaseJourneyPhase = 'kis' | 'basis' | 'hypothesis' | 'rules' | 'handoff'
 
 interface CaseJourneyProps {
   active: CaseJourneyPhase
@@ -9,7 +9,8 @@ interface CaseJourneyProps {
 const phases: Array<{ id: CaseJourneyPhase; label: string; short: string; icon: typeof Hospital }> = [
   { id: 'kis', label: 'Fall im KIS öffnen', short: 'KIS-Start', icon: Hospital },
   { id: 'basis', label: 'Fallbasis bestätigen', short: 'Fallbasis', icon: FileCheck2 },
-  { id: 'hypothesis', label: 'DRG gezielt prüfen', short: 'Prüfpfad', icon: Route },
+  { id: 'hypothesis', label: 'DRG gezielt prüfen', short: 'Hypothese', icon: Route },
+  { id: 'rules', label: 'Kodierung plausibilisieren', short: 'Regeln', icon: BookOpenCheck },
   { id: 'handoff', label: 'Im KIS abschließen', short: 'KIS-Abschluss', icon: Send },
 ]
 

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { FileCode2, Plus, RotateCw, Save, ShieldAlert, Trash2, X } from 'lucide-react'
+import { CheckCircle2, FileCode2, Plus, RotateCw, Save, ShieldAlert, Trash2, X } from 'lucide-react'
 import type { CaseDecision, CodingCase, CodingChange, CodingEntry, CodingEntryType } from '../types'
 import { dateForEvent, formatDay } from './TreatmentRibbon'
 
@@ -21,6 +21,7 @@ export interface DirectCodingInput {
 interface DirectCodingDrawerProps {
   codingCase: CodingCase
   decision: CaseDecision
+  initialEntryId?: string
   running: boolean
   onClose: () => void
   onSave: (input: DirectCodingInput) => Promise<void>
@@ -28,11 +29,12 @@ interface DirectCodingDrawerProps {
 
 const actionLabels = { added: 'Ergänzen', changed: 'Ändern', deleted: 'Löschen' }
 
-export function DirectCodingDrawer({ codingCase, decision, running, onClose, onSave }: DirectCodingDrawerProps) {
+export function DirectCodingDrawer({ codingCase, decision, initialEntryId, running, onClose, onSave }: DirectCodingDrawerProps) {
   const activeEntries = useMemo(() => codingCase.codingEntries.filter((entry) => entry.active), [codingCase.codingEntries])
-  const recommendedType: CodingEntryType = decision.id === 'decision-main' ? 'HD' : decision.id.includes('therapy') || decision.id.includes('palliative') ? 'OPS' : 'ND'
-  const recommendedTarget = activeEntries.find((entry) => entry.type === recommendedType) ?? activeEntries[0]
-  const initialAction: DirectCodingInput['action'] = recommendedType === 'HD' && recommendedTarget?.type === 'HD' ? 'changed' : 'added'
+  const explicitTarget = activeEntries.find((entry) => entry.id === initialEntryId)
+  const recommendedType: CodingEntryType = explicitTarget?.type ?? (decision.id === 'decision-main' ? 'HD' : decision.id.includes('therapy') || decision.id.includes('palliative') ? 'OPS' : 'ND')
+  const recommendedTarget = explicitTarget ?? activeEntries.find((entry) => entry.type === recommendedType) ?? activeEntries[0]
+  const initialAction: DirectCodingInput['action'] = explicitTarget || (recommendedType === 'HD' && recommendedTarget?.type === 'HD') ? 'changed' : 'added'
   const [action, setAction] = useState<DirectCodingInput['action']>(initialAction)
   const [type, setType] = useState<CodingEntryType>(recommendedType)
   const [targetEntryId, setTargetEntryId] = useState(recommendedTarget?.id ?? '')
@@ -46,6 +48,7 @@ export function DirectCodingDrawer({ codingCase, decision, running, onClose, onS
   const [laterality, setLaterality] = useState<NonNullable<CodingEntry['laterality']>>(initialEntry?.laterality ?? 'keine')
   const [quantity, setQuantity] = useState(initialEntry?.quantity ?? 1)
   const [error, setError] = useState('')
+  const [savedMessage, setSavedMessage] = useState('')
   const targetEntry = activeEntries.find((entry) => entry.id === targetEntryId)
 
   const loadEntry = (entry?: CodingEntry) => {
@@ -65,6 +68,7 @@ export function DirectCodingDrawer({ codingCase, decision, running, onClose, onS
   const changeAction = (nextAction: DirectCodingInput['action']) => {
     setAction(nextAction)
     setError('')
+    setSavedMessage('')
     if (nextAction !== 'added') loadEntry(targetEntry ?? recommendedTarget)
     if (nextAction === 'added') {
       setType(recommendedType)
@@ -75,6 +79,7 @@ export function DirectCodingDrawer({ codingCase, decision, running, onClose, onS
 
   const submit = async () => {
     setError('')
+    setSavedMessage('')
     if (action !== 'added' && !targetEntry) {
       setError('Bitte einen bestehenden Kode auswählen.')
       return
@@ -87,10 +92,12 @@ export function DirectCodingDrawer({ codingCase, decision, running, onClose, onS
       setError('Es gibt bereits eine aktive Hauptdiagnose. Nutze „Ändern“ für einen Wechsel.')
       return
     }
+    const savedCode = action === 'deleted' ? targetEntry!.code : code.trim().toUpperCase()
+    const savedType = action === 'added' ? type : targetEntry!.type
     await onSave({
       action,
-      type: action === 'added' ? type : targetEntry!.type,
-      code: action === 'deleted' ? targetEntry!.code : code.trim().toUpperCase(),
+      type: savedType,
+      code: savedCode,
       description: action === 'deleted' ? targetEntry!.description : description.trim(),
       targetEntryId: action === 'added' ? undefined : targetEntry!.id,
       treatmentEventId: treatmentEventId || undefined,
@@ -101,6 +108,13 @@ export function DirectCodingDrawer({ codingCase, decision, running, onClose, onS
       department: department || undefined,
       decisionId: decision.id,
     })
+    setSavedMessage(`${savedType} ${savedCode} wurde gespeichert und neu gruppiert. Du kannst direkt einen weiteren Kode bearbeiten.`)
+    if (action === 'added') {
+      setCode('')
+      setDescription('')
+      setTreatmentEventId('')
+      setServiceEndDate('')
+    }
   }
 
   return (
@@ -182,9 +196,10 @@ export function DirectCodingDrawer({ codingCase, decision, running, onClose, onS
           <RotateCw aria-hidden="true" />
           <span><strong>Speichern erzeugt Iteration {codingCase.grouperRuns.length + 1}.</strong><small>Alle offenen und erledigten Hypothesenbestandteile erhalten den neuen Bewertungsstand.</small></span>
         </div>
+        {savedMessage && <div className="direct-coding-success" role="status"><CheckCircle2 aria-hidden="true" /><span><strong>Änderung übernommen</strong><small>{savedMessage}</small></span></div>}
         {error && <p className="error-text" role="alert">{error}</p>}
         <div className="button-row end">
-          <button className="button secondary" type="button" disabled={running} onClick={onClose}>Abbrechen</button>
+          <button className="button secondary" type="button" disabled={running} onClick={onClose}>{savedMessage ? 'Fertig' : 'Abbrechen'}</button>
           <button className="button primary" type="button" disabled={running} onClick={() => void submit()}>{running ? <RotateCw className="spin" aria-hidden="true" /> : <Save aria-hidden="true" />}{running ? 'Grouper läuft …' : `${actionLabels[action]} und alles neu bewerten`}</button>
         </div>
       </aside>
