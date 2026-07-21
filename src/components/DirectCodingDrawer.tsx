@@ -11,6 +11,7 @@ export interface DirectCodingInput {
   targetEntryId?: string
   treatmentEventId?: string
   serviceDate?: string
+  serviceTime?: string
   serviceEndDate?: string
   laterality?: CodingEntry['laterality']
   quantity?: number
@@ -32,7 +33,10 @@ const actionLabels = { added: 'Ergänzen', changed: 'Ändern', deleted: 'Lösche
 export function DirectCodingDrawer({ codingCase, decision, initialEntryId, running, onClose, onSave }: DirectCodingDrawerProps) {
   const activeEntries = useMemo(() => codingCase.codingEntries.filter((entry) => entry.active), [codingCase.codingEntries])
   const explicitTarget = activeEntries.find((entry) => entry.id === initialEntryId)
-  const recommendedType: CodingEntryType = explicitTarget?.type ?? (decision.id === 'decision-main' ? 'HD' : decision.id.includes('therapy') || decision.id.includes('palliative') ? 'OPS' : 'ND')
+  const decisionDocument = codingCase.documentMap.find((document) => document.linkedDecisionId === decision.id && document.availability === 'vorhanden')
+  const decisionEvent = codingCase.timeline.find((event) => decisionDocument && event.linkedDocumentIds?.includes(decisionDocument.id))
+    ?? codingCase.timeline.find((event) => decisionDocument && event.department === decisionDocument.department && event.day >= decisionDocument.startDay)
+  const recommendedType: CodingEntryType = explicitTarget?.type ?? (decision.id === 'decision-main' ? 'HD' : decisionEvent?.type === 'Eingriff' || decision.id.includes('therapy') || decision.id.includes('palliative') ? 'OPS' : 'ND')
   const recommendedTarget = explicitTarget ?? activeEntries.find((entry) => entry.type === recommendedType) ?? activeEntries[0]
   const initialAction: DirectCodingInput['action'] = explicitTarget || (recommendedType === 'HD' && recommendedTarget?.type === 'HD') ? 'changed' : 'added'
   const [action, setAction] = useState<DirectCodingInput['action']>(initialAction)
@@ -41,10 +45,11 @@ export function DirectCodingDrawer({ codingCase, decision, initialEntryId, runni
   const initialEntry = initialAction === 'changed' ? recommendedTarget : undefined
   const [code, setCode] = useState(initialEntry?.code ?? '')
   const [description, setDescription] = useState(initialEntry?.description ?? '')
-  const [treatmentEventId, setTreatmentEventId] = useState(initialEntry?.treatmentEventId ?? '')
-  const [serviceDate, setServiceDate] = useState(initialEntry?.serviceDate ?? codingCase.admissionDate ?? '')
+  const [treatmentEventId, setTreatmentEventId] = useState(initialEntry?.treatmentEventId ?? decisionEvent?.id ?? '')
+  const [serviceDate, setServiceDate] = useState(initialEntry?.serviceDate ?? (decisionEvent ? dateForEvent(codingCase, decisionEvent) : codingCase.admissionDate) ?? '')
+  const [serviceTime, setServiceTime] = useState(initialEntry?.serviceTime ?? codingCase.timeline.find((event) => event.id === initialEntry?.treatmentEventId)?.time ?? decisionEvent?.time ?? '')
   const [serviceEndDate, setServiceEndDate] = useState(initialEntry?.serviceEndDate ?? '')
-  const [department, setDepartment] = useState(initialEntry?.department ?? 'Gesamtfall')
+  const [department, setDepartment] = useState(initialEntry?.department ?? decisionEvent?.department ?? 'Gesamtfall')
   const [laterality, setLaterality] = useState<NonNullable<CodingEntry['laterality']>>(initialEntry?.laterality ?? 'keine')
   const [quantity, setQuantity] = useState(initialEntry?.quantity ?? 1)
   const [error, setError] = useState('')
@@ -59,6 +64,7 @@ export function DirectCodingDrawer({ codingCase, decision, initialEntryId, runni
     setDescription(entry.description)
     setTreatmentEventId(entry.treatmentEventId ?? '')
     setServiceDate(entry.serviceDate ?? codingCase.admissionDate ?? '')
+    setServiceTime(entry.serviceTime ?? codingCase.timeline.find((event) => event.id === entry.treatmentEventId)?.time ?? '')
     setServiceEndDate(entry.serviceEndDate ?? '')
     setDepartment(entry.department ?? 'Gesamtfall')
     setLaterality(entry.laterality ?? 'keine')
@@ -92,6 +98,11 @@ export function DirectCodingDrawer({ codingCase, decision, initialEntryId, runni
       setError('Es gibt bereits eine aktive Hauptdiagnose. Nutze „Ändern“ für einen Wechsel.')
       return
     }
+    const effectiveType = action === 'added' ? type : targetEntry?.type
+    if (action !== 'deleted' && effectiveType === 'OPS' && (!serviceDate || !serviceTime)) {
+      setError('Für OPS werden Leistungsdatum und Uhrzeit benötigt.')
+      return
+    }
     const savedCode = action === 'deleted' ? targetEntry!.code : code.trim().toUpperCase()
     const savedType = action === 'added' ? type : targetEntry!.type
     await onSave({
@@ -102,8 +113,9 @@ export function DirectCodingDrawer({ codingCase, decision, initialEntryId, runni
       targetEntryId: action === 'added' ? undefined : targetEntry!.id,
       treatmentEventId: treatmentEventId || undefined,
       serviceDate: serviceDate || undefined,
+      serviceTime: serviceTime || undefined,
       serviceEndDate: serviceEndDate || undefined,
-      laterality: (action === 'added' ? type : targetEntry?.type) === 'OPS' ? laterality : undefined,
+      laterality,
       quantity: (action === 'added' ? type : targetEntry?.type) === 'OPS' ? quantity : undefined,
       department: department || undefined,
       decisionId: decision.id,
@@ -113,6 +125,7 @@ export function DirectCodingDrawer({ codingCase, decision, initialEntryId, runni
       setCode('')
       setDescription('')
       setTreatmentEventId('')
+      setServiceTime('')
       setServiceEndDate('')
     }
   }
@@ -176,6 +189,7 @@ export function DirectCodingDrawer({ codingCase, decision, initialEntryId, runni
                   setTreatmentEventId(id)
                   if (linkedEvent) {
                     setServiceDate(dateForEvent(codingCase, linkedEvent) ?? '')
+                    setServiceTime(linkedEvent.time ?? '')
                     setDepartment(linkedEvent.department)
                   }
                 }}>
@@ -185,8 +199,9 @@ export function DirectCodingDrawer({ codingCase, decision, initialEntryId, runni
               </label>
               <label>Fachabteilung<input aria-label="Fachabteilung der freien Kodierung" value={department} onChange={(event) => setDepartment(event.target.value)} /></label>
               <label>Leistungsdatum<input aria-label="Leistungsdatum der freien Kodierung" type="date" value={serviceDate} min={codingCase.admissionDate} max={codingCase.dischargeDate} onChange={(event) => setServiceDate(event.target.value)} /></label>
+              {(action === 'added' ? type : targetEntry?.type) === 'OPS' && <label>Uhrzeit<input aria-label="Leistungsuhrzeit der freien Kodierung" type="time" value={serviceTime} onChange={(event) => setServiceTime(event.target.value)} /></label>}
               <label>Enddatum <span>(optional)</span><input aria-label="Enddatum der freien Kodierung" type="date" value={serviceEndDate} min={serviceDate || codingCase.admissionDate} max={codingCase.dischargeDate} onChange={(event) => setServiceEndDate(event.target.value)} /></label>
-              {(action === 'added' ? type : targetEntry?.type) === 'OPS' && <label>Seitenlokalisation<select aria-label="Seitenlokalisation der freien Kodierung" value={laterality} onChange={(event) => setLaterality(event.target.value as NonNullable<CodingEntry['laterality']>)}><option value="keine">Keine</option><option value="links">Links</option><option value="rechts">Rechts</option><option value="beidseits">Beidseits</option></select></label>}
+              <label>Seitenlokalisation <span>(kodeabhängig)</span><select aria-label="Seitenlokalisation der freien Kodierung" value={laterality} onChange={(event) => setLaterality(event.target.value as NonNullable<CodingEntry['laterality']>)}><option value="keine">Keine</option><option value="links">Links</option><option value="rechts">Rechts</option><option value="beidseits">Beidseits</option></select></label>
               {(action === 'added' ? type : targetEntry?.type) === 'OPS' && <label>Anzahl<input aria-label="Anzahl der freien Kodierung" type="number" min="1" value={quantity} onChange={(event) => setQuantity(Math.max(1, Number(event.target.value)))} /></label>}
             </div>
           </details>

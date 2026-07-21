@@ -117,7 +117,7 @@ export function DecisionCodingWorkspace({
             <input className="sr-only" type="file" disabled={running} onChange={(event) => onEvidenceUpload(event.target.files)} />
           </label>
           <button className="button primary" type="button" disabled={!activeEntries.length || running} onClick={onComplete}><Check aria-hidden="true" /> Kodierentscheidung abschließen</button>
-          {!decision.required && <button className="button secondary" type="button" disabled={running} onClick={onExclude}><X aria-hidden="true" /> Ausschließen</button>}
+          <button className="button secondary" type="button" disabled={running} onClick={onExclude}><X aria-hidden="true" /> Keine Kodierung erforderlich</button>
         </div>
       </div>
     </section>

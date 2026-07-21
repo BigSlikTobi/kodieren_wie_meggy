@@ -370,7 +370,6 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
     selectedProfile.structures.includes('Bronchoskopie'),
   )
   const hospitalTypicality = !isComplex || supportsPulmoOnkoPath ? 'typisch' as const : 'untypisch' as const
-  const difficult = isComplex || input.careForm === 'Normal- und Intensivstation'
   const generatedTimeline = isComplex
     ? [
         { id: 't1', day: 1, time: '09:15', department: 'Pneumologie', type: 'Aufnahme' as const, label: 'Aufnahme mit thorakalem Befund', linkedDocumentIds: ['map-pulmo-report', 'map-precode'] },
@@ -403,6 +402,15 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
         { id: 't-manual-discharge', day: input.stayDays, time: '11:00', department: input.manualTimeline.at(-1)?.department ?? 'Entlassung', type: 'Entlassung' as const, label: 'Entlassung', linkedDocumentIds: [] },
       ]
     : generatedTimeline
+  const hasIntensiveCare = timeline.some((event) => event.type === 'Intensiv' || /intensiv/i.test(event.department))
+  const clinicalDepartments = new Set(timeline.filter((event) => !['Aufnahme', 'Entlassung'].includes(event.type)).map((event) => event.department))
+  const derivedCareForm: CodingCase['careForm'] = hasIntensiveCare ? 'Normal- und Intensivstation' : 'Normalstation'
+  const derivedComplexity: CodingCase['complexity'] = hasIntensiveCare || clinicalDepartments.size >= 3
+    ? 'komplex'
+    : clinicalDepartments.size >= 2 || timeline.filter((event) => event.type === 'Eingriff').length > 1
+      ? 'prüfbedürftig'
+      : 'standardnah'
+  const derivedDifficulty: CodingCase['difficulty'] = derivedComplexity === 'standardnah' && hospitalTypicality === 'typisch' ? 'einfach' : 'schwierig'
   const documentMap = isComplex
     ? [
         {
@@ -675,7 +683,7 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
           groupingImpactReason: 'Die Hauptdiagnose bestimmt den pneumologischen DRG-Pfad.',
         },
       ]
-  const codingEntries: CodingEntry[] = input.manualCodingEntries?.length
+  const baselineCodingEntries: CodingEntry[] = input.manualCodingEntries?.length
     ? input.manualCodingEntries.map((entry, index) => ({
         id: `coding-manual-baseline-${index + 1}`,
         type: entry.type,
@@ -695,6 +703,10 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
         groupingImpactReason: entry.type === 'HD' ? 'Die Hauptdiagnose bestimmt MDC und führenden DRG-Pfad.' : 'Manuell übernommener Ausgangskode; Wirkung wird in der ersten Iteration geprüft.',
       }))
     : generatedCodingEntries
+  const codingEntries: CodingEntry[] = baselineCodingEntries.map((entry) => ({
+    ...entry,
+    serviceTime: entry.serviceTime ?? (entry.type === 'OPS' ? timeline.find((event) => event.id === entry.treatmentEventId)?.time : undefined),
+  }))
   const activeMainDiagnosis = codingEntries.find((entry) => entry.active && entry.type === 'HD')
   const activeProcedures = codingEntries.filter((entry) => entry.active && entry.type === 'OPS')
   const sourceDocuments: CaseDocument[] = input.files.map((name, index) => ({
@@ -726,11 +738,13 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
     dischargeDate,
     age: input.age,
     stayDays: input.stayDays,
-    careForm: input.careForm,
-    complexity: isComplex ? 'komplex' : 'standardnah',
-    complexityReasons: isComplex
-      ? ['Fachabteilungswechsel', 'Invasive Diagnostik', 'Führende medikamentöse Therapie']
-      : ['Eine Fachabteilung', 'Kein Intensivaufenthalt', 'Stringenter konservativer Verlauf'],
+    careForm: derivedCareForm,
+    complexity: derivedComplexity,
+    complexityReasons: [
+      `${clinicalDepartments.size || 1} beteiligte Fachabteilung${clinicalDepartments.size === 1 ? '' : 'en'}`,
+      hasIntensiveCare ? 'Intensivmedizinischer Teilaufenthalt' : 'Kein Intensivaufenthalt',
+      `${timeline.filter((event) => event.type === 'Eingriff').length} Intervention${timeline.filter((event) => event.type === 'Eingriff').length === 1 ? '' : 'en'} im Verlauf`,
+    ],
     hospitalTypicality,
     hospitalTypicalitySource: 'technisch',
     hospitalTypicalityReason: hospitalTypicality === 'typisch'
@@ -739,13 +753,11 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
         : 'Vergleichbare konservative Pneumologie-Fälle kommen am Standort regelmäßig vor.'
       : 'Der kombinierte pulmologisch-onkologische Behandlungspfad ist im Standortprofil nicht regelhaft abgebildet.',
     comparableCases: hospitalTypicality === 'typisch' ? (isComplex ? 42 : 186) : 3,
-    difficulty: difficult ? 'schwierig' : 'einfach',
+    difficulty: derivedDifficulty,
     difficultySource: 'technisch',
-    difficultyReason: difficult
-      ? isComplex
-        ? 'Fachabteilungswechsel, invasive Diagnostik und mehrere mögliche DRG-Pfade erhöhen die Prüftiefe.'
-        : 'Der Intensivaufenthalt öffnet zusätzliche OPS-, Organersatz- und Altersprüfungen.'
-      : 'Ein Fachgebiet, kein Intensivaufenthalt und ein stringenter Behandlungsverlauf.',
+    difficultyReason: derivedDifficulty === 'schwierig'
+      ? 'Fachabteilungswechsel, Behandlungsintensität oder mehrere mögliche DRG-Pfade erhöhen die Prüftiefe.'
+      : 'Ein stringenter, hausüblicher Verlauf mit wenigen ergebnisrelevanten Entscheidungen.',
     dkrMatches: isComplex
       ? [
           {
@@ -877,6 +889,7 @@ export function createDemoCase(input: NewCaseInput): CodingCase {
       },
     ],
     codingEntries,
+    kisBaselineEntries: codingEntries.map((entry) => ({ ...entry })),
     technicalValues: input.technicalValues ?? [],
     grouperAdministrativeData: input.grouperAdministrativeData ?? {
       admissionReasonCode: '01 07',

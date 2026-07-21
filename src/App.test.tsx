@@ -8,16 +8,15 @@ async function openManualIntake(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole('button', { name: /Einzelfall anlegen/i }))
   await user.type(screen.getByLabelText(/Fallnummer/i), 'P-2026-009999')
   await user.click(screen.getByRole('button', { name: /Weiter/i }))
-  await user.upload(screen.getByLabelText(/Arzt- oder Entlassungsbericht auswählen/i), new File(['bericht'], 'entlassungsbericht.pdf', { type: 'application/pdf' }))
+  await user.upload(screen.getByLabelText(/Arzt- oder Entlassungsbericht auswählen/i), new File(['bericht'], 'onkologischer-entlassungsbericht.pdf', { type: 'application/pdf' }))
   await user.upload(screen.getByLabelText(/KIS-Kodierexport auswählen/i), new File(['kodierung'], 'aktuelle-kodierung.csv', { type: 'text/csv' }))
   await user.click(screen.getByRole('button', { name: /Weiter/i }))
   await user.click(screen.getByRole('button', { name: /Fallbasis prüfen/i }))
 }
 
 async function confirmIntake(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole('button', { name: /Verlauf bestätigen/i }))
-  await user.click(screen.getByRole('button', { name: /Ausgangskodierung bestätigen/i }))
-  await user.click(screen.getByRole('button', { name: /Erste DRG-Iteration starten/i }))
+  await user.click(screen.getByRole('button', { name: /Fallbasis bestätigen und DRG-Hypothese starten/i }))
+  await waitFor(() => expect(screen.getAllByText(/Hausmuster/i).length).toBeGreaterThan(0))
 }
 
 async function openManualCockpit(user: ReturnType<typeof userEvent.setup>) {
@@ -56,13 +55,35 @@ describe('Kodierpfad – geführter Arbeitsablauf', () => {
     await user.click(screen.getByRole('button', { name: /Weiter/i }))
     expect(screen.getByRole('heading', { name: /Beide Ausgangsstände sind vorhanden/i })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Fallbasis prüfen/i }))
-    expect(screen.getByRole('heading', { name: /Zwei Ausgangsstände prüfen/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Erste DRG-Iteration starten/i })).toBeDisabled()
+    expect(screen.getByRole('heading', { name: /Verlauf und Ausgangskodierung abgleichen/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Diagnosen/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Prozeduren/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Verlauf bestätigen/i })).not.toBeInTheDocument()
+    const combinedConfirmation = screen.getByRole('button', { name: /Fallbasis bestätigen und DRG-Hypothese starten/i })
+    expect(combinedConfirmation).toBeEnabled()
+    await user.click(combinedConfirmation)
+    await waitFor(() => expect(screen.getAllByText(/Hausmuster/i).length).toBeGreaterThan(0))
+  })
 
-    await user.click(screen.getByRole('button', { name: /Verlauf bestätigen/i }))
-    expect(screen.getByRole('button', { name: /Ausgangskodierung bestätigen/i })).toBeEnabled()
-    await user.click(screen.getByRole('button', { name: /Ausgangskodierung bestätigen/i }))
-    expect(screen.getByRole('button', { name: /Erste DRG-Iteration starten/i })).toBeEnabled()
+  it('lässt Zahlenfelder leer und entfernt manuelle Fallklassifikationen', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: /Einzelfall anlegen/i }))
+    const ageInput = screen.getByLabelText(/Alter bei Aufnahme/i)
+    const stayInput = screen.getByLabelText(/Verweildauer/i)
+
+    await user.clear(ageInput)
+    await user.clear(stayInput)
+    expect(ageInput).toHaveDisplayValue('')
+    expect(stayInput).toHaveDisplayValue('')
+
+    await user.type(ageInput, '72')
+    await user.type(stayInput, '8')
+    expect(ageInput).toHaveValue(72)
+    expect(stayInput).toHaveValue(8)
+    expect(screen.queryByLabelText('Versorgungsform')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Demoverlauf')).not.toBeInTheDocument()
   })
 
   it('übernimmt manuelle Ereignisse und manuelle KIS-Kodes in die echte Fallbasis', async () => {
@@ -80,33 +101,56 @@ describe('Kodierpfad – geführter Arbeitsablauf', () => {
 
     const codingCard = screen.getByRole('heading', { name: /Aktuelle KIS-Kodierung übernehmen/i }).closest('article')!
     await user.click(within(codingCard).getByRole('button', { name: 'Manuell' }))
-    const codingInput = within(codingCard).getByLabelText(/Kodes aus dem KIS/i)
-    await user.clear(codingInput)
-    await user.type(codingInput, 'HD S72.00 Schenkelhalsfraktur\nOPS 5-790.5 Osteosynthese')
-    expect(within(codingCard).getByText('2 Kodes erkannt')).toBeInTheDocument()
+    await user.type(within(codingCard).getByLabelText('HD-Kode 1'), 'S72.00')
+    await user.click(within(codingCard).getByRole('button', { name: /OPS ergänzen/i }))
+    await user.type(within(codingCard).getByLabelText('OPS-Kode 1'), '5-790.5')
+    expect(within(codingCard).getByText(/Technisch vollständig · 2 Kodes/i)).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /Weiter/i }))
     await user.click(screen.getByRole('button', { name: /Fallbasis prüfen/i }))
     const intakeMap = screen.getByRole('region', { name: 'Gemeinsame Fallkarte' })
     expect(intakeMap).toHaveTextContent('Operation der Schenkelhalsfraktur')
-    expect(screen.getByText('1 ICD · 1 OPS')).toBeInTheDocument()
-    await user.click(screen.getByText(/Erkannte Ereignisse bearbeiten/i))
-    expect(screen.getAllByText('Operation der Schenkelhalsfraktur').length).toBeGreaterThan(0)
+    expect(screen.getByRole('tab', { name: /Diagnosen 1/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Prozeduren 1/i })).toBeInTheDocument()
   })
 
-  it('setzt die Verlaufsbestätigung nach einer manuellen Änderung zurück', async () => {
+  it('zeigt Importfehler und übernimmt korrigierte Kodes in strukturierte Grouperzeilen', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(screen.getByRole('button', { name: /Einzelfall anlegen/i }))
+    await user.type(screen.getByLabelText(/Fallnummer/i), 'P-2026-009997')
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    await user.upload(screen.getByLabelText(/Arzt- oder Entlassungsbericht auswählen/i), new File(['bericht'], 'entlassungsbericht.pdf', { type: 'application/pdf' }))
+
+    const codingCard = screen.getByRole('heading', { name: /Aktuelle KIS-Kodierung übernehmen/i }).closest('article')!
+    await user.click(within(codingCard).getByRole('button', { name: 'Manuell' }))
+    await user.click(within(codingCard).getByText(/Kodes aus Zwischenablage übernehmen/i))
+    const importInput = within(codingCard).getByLabelText(/Kodes aus Zwischenablage/i)
+    await user.type(importInput, 'I10.00\nOPS 5-790.5 Osteosynthese')
+    await user.click(within(codingCard).getByRole('button', { name: /In Grouperzeilen übernehmen/i }))
+    expect(within(codingCard).getByText(/Zeile 1: Typ und Kode konnten nicht erkannt werden/i)).toBeInTheDocument()
+
+    await user.clear(importInput)
+    await user.type(importInput, 'Hauptdiagnose I10.00 Hypertonie\nProzedur 5-790.5 Osteosynthese')
+    await user.click(within(codingCard).getByRole('button', { name: /In Grouperzeilen übernehmen/i }))
+    expect(within(codingCard).queryByText(/konnten nicht erkannt werden/i)).not.toBeInTheDocument()
+    expect(within(codingCard).getByText(/Technisch vollständig · 2 Kodes/i)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Weiter/i }))
+    expect(screen.getByRole('heading', { name: /Beide Ausgangsstände sind vorhanden/i })).toBeInTheDocument()
+  })
+
+  it('führt eine Verlaufsänderung in dieselbe gemeinsame Fallbasis zurück', async () => {
     const user = userEvent.setup()
     render(<App />)
     await openManualIntake(user)
-    await user.click(screen.getByRole('button', { name: /Verlauf bestätigen/i }))
     await user.click(screen.getByRole('button', { name: /Ereignis ergänzen/i }))
     await user.type(screen.getByLabelText(/Was ist passiert/i), 'Zusätzliche Operation')
-    await user.click(screen.getByRole('button', { name: /Im Verlauf übernehmen/i }))
+    await user.click(screen.getByRole('button', { name: /^Übernehmen$/i }))
 
-    expect(screen.getByText(/direkt in den Behandlungsverlauf übernommen/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Ausgangskodierung bestätigen/i })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /Erste DRG-Iteration starten/i })).toBeDisabled()
+    expect(screen.getByText(/Ereignis wurde in den Verlauf übernommen/i)).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Gemeinsame Fallkarte' })).toHaveTextContent('Zusätzliche Operation')
+    expect(screen.getByRole('button', { name: /Fallbasis bestätigen und DRG-Hypothese starten/i })).toBeEnabled()
   })
 
   it('stoppt nach jeder Kodierentscheidung sichtbar vor dem nächsten Prüfschritt', async () => {
@@ -132,25 +176,20 @@ describe('Kodierpfad – geführter Arbeitsablauf', () => {
     expect(screen.getByText(/optionale Pfade bleiben nachgeordnet/i)).toBeInTheDocument()
   })
 
-  it('bietet den Dokumentupload direkt an jedem Ereignis der Dokumentenlandkarte an', async () => {
+  it('hält Upload, Dokumenttext und Kodierung im selben Event-Prüfraum', async () => {
     const user = userEvent.setup()
     render(<App />)
     await openManualCockpit(user)
-    await user.click(screen.getByRole('button', { name: /Dokumente und Kodes öffnen/i }))
+    const map = screen.getByRole('region', { name: 'Gemeinsame Fallkarte' })
+    await user.upload(within(map).getByLabelText(/Dokument zu diesem Event/i), new File(['demo'], 'bronchoskopie-bericht.pdf', { type: 'application/pdf' }))
 
-    const chronology = screen.getByRole('list', { name: /Behandlungskette mit Dokumenten und Kodierung/i })
-    const biopsyEvent = within(chronology).getByText('Bronchoskopische Biopsie').closest('article')!
-    expect(within(biopsyEvent).getByLabelText(/Dokument für Bronchoskopische Biopsie hochladen/i)).toBeInTheDocument()
-    await user.upload(within(biopsyEvent).getByLabelText(/Dokument zu diesem Ereignis/i), new File(['demo'], 'op-bericht.pdf', { type: 'application/pdf' }))
+    await waitFor(() => expect(screen.getByRole('heading', { name: /Hauptdiagnose über den Gesamtfall belegen/i })).toBeInTheDocument())
+    expect(screen.queryByRole('dialog', { name: /Dokumentenlandkarte/i })).not.toBeInTheDocument()
+    expect(screen.getByLabelText(/Ausgelesener Dokumenttext/i)).toHaveTextContent(/Aufnahmegrund und Behandlungsbezug/i)
+    expect(screen.getAllByText(/^Event$/i).length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/^Fachfreigabe$/i).length).toBeGreaterThan(0)
 
-    await waitFor(() => expect(screen.getAllByText(/LLM-Zuordnung vorbereitet/i).length).toBeGreaterThan(0))
-    expect(screen.getAllByText(/Neu hochgeladen und diesem Ereignis zugeordnet/i).length).toBeGreaterThan(0)
-
-    const documentDialog = screen.getByRole('dialog', { name: /Bronchoskopie- und Biopsiebericht/i })
-    expect(within(documentDialog).getByLabelText(/Ausgelesener Dokumenttext/i)).toHaveTextContent(/Aufnahmegrund und Behandlungsbezug/i)
-    expect(within(documentDialog).getAllByText(/Belegstelle/i).length).toBeGreaterThan(0)
-
-    await user.click(within(documentDialog).getByRole('button', { name: /Wiki fragen/i }))
+    await user.click(screen.getByRole('button', { name: /Kodierwiki fragen/i }))
     const wikiDialog = screen.getByRole('dialog', { name: 'Wiki-Chat' })
     expect(within(wikiDialog).getByText(/Empfehlung und Dokumentation nebeneinander/i)).toBeInTheDocument()
     await user.type(within(wikiDialog).getByLabelText(/Frage an den Wiki-Chat/i), 'Welche OPS-Systematik ist hier relevant?')
@@ -173,19 +212,22 @@ describe('Kodierpfad – geführter Arbeitsablauf', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /Zur Regelprüfung/i })).toBeInTheDocument())
     await user.click(screen.getByRole('button', { name: /Zur Regelprüfung/i }))
 
-    expect(screen.getByRole('heading', { name: /Kodierregeln plausibilisieren/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Kodierung plausibilisieren/i })).toBeInTheDocument()
+    expect(screen.getByText(/OPS und Diagnosen/i)).toBeInTheDocument()
+    expect(screen.getByText(/MDC und führende Fachabteilung/i)).toBeInTheDocument()
+    expect(screen.getByText(/Partition und Behandlungsverlauf/i)).toBeInTheDocument()
     expect(screen.queryByText(/^NUB$/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/^Komplexbehandlungen$/i)).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /Regelprüfung bestätigen/i }))
+    await user.click(screen.getByRole('button', { name: /Plausibilisierung bestätigen/i }))
     await user.click(screen.getByRole('button', { name: /Prüfung abschließen/i }))
 
-    expect(screen.getByRole('heading', { name: /Prüfung abgeschlossen – KIS-Übernahme ausstehend/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /KIS-Übertragungsliste öffnen/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Im KIS übertragen/i })).toBeInTheDocument()
+    expect(screen.getByRole('table', { name: /KIS-Übertragungsliste/i })).toBeInTheDocument()
+    expect(screen.getAllByText(/C34.9|8-542.11/i).length).toBeGreaterThan(0)
     expect(screen.getByText(/Keine Schnittstelle zum Primärsystem/i)).toBeInTheDocument()
     const finalClose = screen.getByRole('button', { name: /KIS-Übernahme bestätigen und Fall abschließen/i })
     expect(finalClose).toBeDisabled()
-    await user.click(screen.getByLabelText(/Kodierung im KIS übernommen/i))
-    await user.click(screen.getByLabelText(/Groupergebnis im KIS geprüft/i))
+    for (const checkbox of screen.getAllByRole('checkbox')) await user.click(checkbox)
     expect(finalClose).toBeEnabled()
     await user.click(finalClose)
     expect(screen.getByRole('heading', { name: /Fall sicher abgeschlossen/i })).toBeInTheDocument()
@@ -196,7 +238,7 @@ describe('Kodierpfad – geführter Arbeitsablauf', () => {
     const user = userEvent.setup()
     render(<App />)
     await openManualCockpit(user)
-    await user.click(screen.getByRole('button', { name: /^Grouper-Eingaben$/i }))
+    await user.click(screen.getAllByRole('button', { name: /^Grouper-Eingaben$/i })[0])
     const dialog = screen.getByRole('dialog', { name: 'Grouper-Eingaben' })
     expect(within(dialog).getByText('Aufnahmegrund')).toBeInTheDocument()
     expect(within(dialog).getByText('Entlassungsgrund')).toBeInTheDocument()
@@ -219,11 +261,11 @@ describe('Kodierpfad – geführter Arbeitsablauf', () => {
     await user.click(screen.getByRole('button', { name: /Weiter/i }))
     await user.click(screen.getByRole('button', { name: /Fallbasis prüfen/i }))
     expect(screen.getByText(/Fallbasis · P-2026-004218/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Ausgangskodierung bestätigen/i })).toBeDisabled()
-    await user.click(screen.getByRole('button', { name: /Verlauf bestätigen/i }))
-    await user.click(screen.getByRole('button', { name: /Ausgangskodierung bestätigen/i }))
-    expect(screen.getByRole('button', { name: /Erste DRG-Iteration starten/i })).toBeEnabled()
-    await user.click(screen.getByRole('button', { name: /Erste DRG-Iteration starten/i }))
+    expect(screen.getByRole('tab', { name: /Diagnosen/i })).toBeInTheDocument()
+    const combinedConfirmation = screen.getByRole('button', { name: /Fallbasis bestätigen und DRG-Hypothese starten/i })
+    expect(combinedConfirmation).toBeEnabled()
+    await user.click(combinedConfirmation)
+    await waitFor(() => expect(screen.getAllByText(/Hausmuster/i).length).toBeGreaterThan(0))
     await user.click(screen.getByRole('button', { name: /Fall wechseln/i }))
     expect(screen.getByText('Fallbasis bereits bestätigt')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Prüfpfad fortsetzen/i })).toBeInTheDocument()

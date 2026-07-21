@@ -1,6 +1,7 @@
 import { Activity, ArrowRight, BookOpenCheck, Building2, ChevronDown, Cross, Database, FileCheck2, FileCode2, FileQuestion, FileUp, GitBranch, Microscope, NotebookText, Pill, Route, ScanLine, Scissors, ShieldAlert, ShieldCheck, Target } from 'lucide-react'
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import type { CodingCase, CodingEntry, DocumentMapItem, TreatmentEvent } from '../types'
+import './TreatmentRibbon.v27.css'
 
 interface TreatmentRibbonProps {
   codingCase: CodingCase
@@ -53,7 +54,7 @@ export function TreatmentRibbon({ codingCase, compact = false, mode = 'hypothesi
   } : undefined
 
   if (compact) {
-    return <HypothesisCasePath codingCase={codingCase} events={relevantEvents} departments={departments} documents={documents} mode={mode} onOpenEvent={onOpenEvent} onOpenDocument={openDocument} onOpenDecision={onOpenDecision} onUploadEventDocument={onUploadEventDocument} onUploadCourseDocument={onUploadCourseDocument} />
+    return <V27TreatmentPath codingCase={codingCase} events={events} departments={departments} documents={documents} mode={mode} onOpenEvent={onOpenEvent} onOpenDocument={openDocument} onOpenDecision={onOpenDecision} onOpenDepartment={onOpenDepartment} onUploadEventDocument={onUploadEventDocument} onUploadCourseDocument={onUploadCourseDocument} />
   }
 
   return (
@@ -191,6 +192,224 @@ export function TreatmentRibbon({ codingCase, compact = false, mode = 'hypothesi
       )}
     </section>
   )
+}
+
+function V27TreatmentPath({ codingCase, events, departments, documents, mode, onOpenEvent, onOpenDocument, onOpenDecision, onOpenDepartment, onUploadEventDocument, onUploadCourseDocument }: {
+  codingCase: CodingCase
+  events: TreatmentEvent[]
+  departments: DepartmentStay[]
+  documents: DocumentMapItem[]
+  mode: 'hypothesis' | 'intake'
+  onOpenEvent?: (eventId: string) => void
+  onOpenDocument?: (document: DocumentMapItem) => void
+  onOpenDecision?: (decisionId: string) => void
+  onOpenDepartment?: (eventId: string, documentId?: string) => void
+  onUploadEventDocument?: (eventId: string, files: FileList | null) => void
+  onUploadCourseDocument?: (eventId: string, files: FileList | null) => void
+}) {
+  const intakeMode = mode === 'intake'
+  const currentRun = codingCase.grouperRuns.at(-1)
+  const activeEntries = codingCase.codingEntries.filter((entry) => entry.active)
+  const relevantDocuments = documents.filter((document) => document.kind !== 'vorkodierung')
+  const openDecision = codingCase.decisions.find((decision) => decision.required && !['belegt', 'ausgeschlossen'].includes(decision.status))
+  const focusDocument = intakeMode || !openDecision ? undefined : relevantDocuments.find((document) => document.linkedDecisionId === openDecision.id && document.priority === 'jetzt')
+    ?? relevantDocuments.find((document) => document.linkedDecisionId === openDecision.id && getDocumentEvidenceStatus(document).bucket === 'relevant-action')
+  const unresolvedCodeEvent = events.find((event) => activeEntries.some((entry) => entry.treatmentEventId === event.id && entry.reviewStatus !== 'belegt'))
+  const firstClinicalEvent = events.find((event) => !['Aufnahme', 'Verlegung', 'Entlassung'].includes(event.type))
+  const focusEvent = intakeMode ? undefined : (openDecision
+    ? events.find((event) => focusDocument && event.linkedDocumentIds?.includes(focusDocument.id)) ?? unresolvedCodeEvent ?? firstClinicalEvent
+    : unresolvedCodeEvent)
+  const openRequired = codingCase.decisions.filter((decision) => decision.required && !['belegt', 'ausgeschlossen'].includes(decision.status)).length
+  const openAlternatives = codingCase.decisions.filter((decision) => !decision.required && !['belegt', 'ausgeschlossen'].includes(decision.status)).length
+  const relevantGaps = relevantDocuments.filter((document) => getDocumentEvidenceStatus(document).bucket === 'relevant-action').length
+  const unvalidatedCodes = activeEntries.filter((entry) => entry.reviewStatus !== 'belegt').length
+  const stability = openRequired === 0 ? 'hoch' : openRequired === 1 ? 'mittel' : 'niedrig'
+  const evidenceSafety = relevantGaps === 0 ? 'hoch' : relevantGaps === 1 ? 'mittel' : 'niedrig'
+  const codingSafety = unvalidatedCodes === 0 ? 'hoch' : unvalidatedCodes <= 3 ? 'mittel' : 'niedrig'
+  const focusTitle = openDecision?.title ?? focusDocument?.title ?? focusEvent?.label
+  const focusReason = openDecision?.effect ?? focusDocument?.resultImpact ?? 'Den noch offenen Sachverhalt am Behandlungsverlauf prüfen.'
+  const stageWidth = Math.max(820, Math.ceil(codingCase.stayDays * (codingCase.stayDays <= 20 ? 48 : codingCase.stayDays <= 40 ? 40 : 34)))
+  const eventLayout = layoutTimelineEvents(events, codingCase.stayDays, stageWidth - 148)
+  const eventRows = Math.max(1, ...eventLayout.map((item) => item.row + 1))
+  const stageHeight = 174 + (eventRows - 1) * 105
+  const toneByDepartment = new Map<string, number>()
+  departments.forEach((stay) => {
+    if (!toneByDepartment.has(stay.department)) toneByDepartment.set(stay.department, toneByDepartment.size % 5)
+  })
+
+  const openFocus = () => {
+    if (openDecision && onOpenDecision) onOpenDecision(openDecision.id)
+    else if (focusDocument && onOpenDocument) onOpenDocument(focusDocument)
+    else if (focusEvent) onOpenEvent?.(focusEvent.id)
+  }
+
+  return (
+    <section className={`v27-treatment-map ${intakeMode ? 'is-intake' : 'is-hypothesis'}`} aria-label="Gemeinsame Fallkarte">
+      <header className="v27-map-head">
+        {intakeMode ? <>
+          <span className="v27-head-primary"><small>Fallbasis</small><strong>{events.length} Behandlungsereignisse</strong><em>Automatisch zusammengeführt</em></span>
+          <span><small>Teilaufenthalte</small><strong>{departments.length}</strong><em>{departments.map((stay) => stay.department).filter((value, index, values) => value !== values[index - 1]).join(' → ')}</em></span>
+          <span><small>Aufenthalt</small><strong>{codingCase.stayDays} Tage</strong><em>{formatDay(codingCase, 1)}–{formatDay(codingCase, codingCase.stayDays)}</em></span>
+          <span><small>Prüfauftrag</small><strong>Zeitfolge prüfen</strong><em>Events und Fachabteilungen</em></span>
+        </> : <>
+          <span className="v27-head-primary"><small>DRG-Hypothese · Iteration {currentRun?.iteration ?? 1}</small><strong>{currentRun?.drg ?? '–'}</strong><em>{codingCase.currentMainDiagnosis}</em></span>
+          <span className={`safety-${stability}`}><small>DRG-Stabilität</small><strong>{stability}</strong><em>{openAlternatives} Alternativpfad{openAlternatives === 1 ? '' : 'e'} offen</em></span>
+          <span className={`safety-${evidenceSafety}`}><small>Belegsicherheit</small><strong>{evidenceSafety}</strong><em>{relevantGaps} relevante Lücke{relevantGaps === 1 ? '' : 'n'}</em></span>
+          <span className={`safety-${codingSafety}`}><small>Kodiersicherheit</small><strong>{codingSafety}</strong><em>{unvalidatedCodes} Kode{unvalidatedCodes === 1 ? '' : 's'} offen</em></span>
+        </>}
+      </header>
+
+      {!intakeMode && <V27LengthOfStayCorridor codingCase={codingCase} />}
+
+      {!intakeMode && focusTitle && (
+        <button className="v27-next-action" type="button" onClick={openFocus}>
+          <b>1</b>
+          <span><small>Nächster belastbarer Schritt</small><strong>{focusTitle}</strong><em>{focusReason}</em></span>
+          <i>Prüfen <ArrowRight aria-hidden="true" /></i>
+        </button>
+      )}
+
+      <figure className="v27-timeline-figure">
+        <figcaption>
+          <span><strong>{intakeMode ? 'Behandlungsverlauf prüfen' : 'Behandlungsverlauf der DRG-Hypothese'}</strong><small>Fachabteilungen und Events auf einer gemeinsamen Zeitachse</small></span>
+          <time>{formatDay(codingCase, 1)}–{formatDay(codingCase, codingCase.stayDays)}</time>
+        </figcaption>
+        <div className="v27-timeline-scroll">
+          <div className="v27-timeline-stage" style={{ minWidth: `${stageWidth}px`, height: `${stageHeight}px` }}>
+            <div className="v27-timeline-axis">
+              {departments.map((stay, index) => {
+                const left = ((stay.start - 1) / Math.max(1, codingCase.stayDays)) * 100
+                const width = (duration(stay) / Math.max(1, codingCase.stayDays)) * 100
+                const stayEvents = events.filter((event) => event.day >= stay.start && event.day <= stay.end)
+                const firstEvent = stayEvents.find((event) => event.department === stay.department) ?? stayEvents[0]
+                const courseDocuments = documents.filter((document) => document.kind === 'verlaufsbericht' && document.department === stay.department && rangesOverlap(stay.start, stay.end, document.startDay, document.endDay ?? document.startDay))
+                const tone = toneByDepartment.get(stay.department) ?? 0
+                const head = <><span><strong>{stay.department}</strong><small>{formatDay(codingCase, stay.start)}–{formatDay(codingCase, stay.end)} · {duration(stay)} Tag{duration(stay) === 1 ? '' : 'e'}</small></span>{stay.intensive ? <Activity aria-hidden="true" /> : <Building2 aria-hidden="true" />}</>
+                return (
+                  <div className={`v27-department-segment tone-${tone} ${stay.intensive ? 'is-intensive' : ''}`} style={{ left: `${left}%`, width: `${width}%` }} key={`${stay.department}-${stay.start}`}>
+                    {onOpenDepartment && firstEvent
+                      ? <button className="v27-department-head" type="button" aria-label={`${stay.department}, ${duration(stay)} Tage: Teilaufenthalt öffnen`} onClick={() => onOpenDepartment(firstEvent.id, courseDocuments.length === 1 ? courseDocuments[0].id : undefined)}>{head}</button>
+                      : <span className="v27-department-head">{head}</span>}
+                    {index > 0 && <span className="v27-transfer-boundary" aria-hidden="true"><span><ArrowRight /> Verlegung</span></span>}
+                  </div>
+                )
+              })}
+              <span className="v27-time-axis" aria-hidden="true" />
+              {eventLayout.map(({ event, row }) => {
+                const linkedDocuments = intakeMode ? [] : documents.filter((document) => event.linkedDocumentIds?.includes(document.id) && document.kind !== 'vorkodierung')
+                const linkedCodes = intakeMode ? [] : activeEntries.filter((entry) => entry.treatmentEventId === event.id || linkedDocuments.some((document) => document.id === entry.evidenceDocumentId))
+                const primaryDocument = linkedDocuments.find((document) => document.priority === 'jetzt') ?? linkedDocuments[0]
+                const hasMissingRelevant = linkedDocuments.some((document) => getDocumentEvidenceStatus(document).bucket === 'relevant-action' && document.availability === 'fehlend')
+                const hasCheckedRelevant = linkedDocuments.some((document) => getDocumentEvidenceStatus(document).bucket === 'relevant-checked')
+                const hasOpenRelevant = linkedDocuments.some((document) => getDocumentEvidenceStatus(document).bucket === 'relevant-action')
+                const isFocus = !intakeMode && event.id === focusEvent?.id
+                const state = isFocus ? 'focus' : hasMissingRelevant ? 'missing' : hasCheckedRelevant ? 'checked' : hasOpenRelevant ? 'open' : 'context'
+                const statusLabel = isFocus ? 'jetzt prüfen' : hasMissingRelevant ? 'Nachweis fehlt' : hasCheckedRelevant ? 'geprüft' : hasOpenRelevant ? 'offen' : 'Kontext'
+                const icdCount = linkedCodes.filter((entry) => entry.type === 'HD' || entry.type === 'ND').length
+                const opsCount = linkedCodes.filter((entry) => entry.type === 'OPS').length
+                const day = Math.min(Math.max(1, event.day), Math.max(1, codingCase.stayDays))
+                const position = ((day - .5) / Math.max(1, codingCase.stayDays)) * 100
+                const cardStyle = {
+                  left: `${position}%`,
+                  top: `${72 + row * 105}px`,
+                  '--event-connector-height': `${11 + row * 105}px`,
+                } as CSSProperties
+                const ariaLabel = `${formatDay(codingCase, event.day)}${event.time ? `, ${event.time} Uhr` : ''}, ${event.department}: ${event.label}.${intakeMode ? '' : ` ${statusLabel}; ${icdCount} ICD und ${opsCount} OPS.`}`
+                const content = <>
+                  <span className="v27-event-node"><EventIcon event={event} /></span>
+                  <span className="v27-event-meta"><time>{formatDay(codingCase, event.day)}{event.time ? ` · ${event.time}` : ''}</time><em>{event.department}</em></span>
+                  <strong>{event.label}</strong>
+                  {intakeMode
+                    ? <span className="v27-event-kind">{event.type}</span>
+                    : <span className="v27-event-evidence"><span>{primaryDocument ? statusLabel : 'kein Dokument'}</span><b>{icdCount} ICD · {opsCount} OPS</b></span>}
+                </>
+                return onOpenEvent
+                  ? <button className={`v27-event-card state-${state}`} type="button" style={cardStyle} key={event.id} aria-label={ariaLabel} onClick={() => onOpenEvent(event.id)}>{content}</button>
+                  : <div className={`v27-event-card state-${state} is-static`} style={cardStyle} key={event.id} role="group" aria-label={ariaLabel}>{content}</div>
+              })}
+            </div>
+          </div>
+        </div>
+        <details className="v27-map-legend">
+          <summary>Legende</summary>
+          <div>{intakeMode ? <>
+            <span><i />Farbband = Teilaufenthalt</span><span><i />Karte = Event am Behandlungstag</span><span>Vertikale Linie = Verlegung</span>
+          </> : <>
+            <span><i className="is-focus" />jetzt prüfen</span><span><i className="is-missing" />Nachweis fehlt</span><span><i className="is-checked" />geprüft</span><span><i />Kontext</span>
+          </>}</div>
+        </details>
+      </figure>
+
+      {!intakeMode && focusEvent && (onUploadEventDocument || onUploadCourseDocument) && (
+        <div className="v27-upload-actions" aria-label="Dokument zur Prüfung hochladen">
+          <span><small>Quelle zum nächsten Prüfschritt</small><strong>{focusEvent.label}</strong></span>
+          {onUploadEventDocument && <label><FileUp aria-hidden="true" /><span><strong>Dokument zu diesem Event</strong><small>{formatDay(codingCase, focusEvent.day)} · {focusEvent.department}</small></span><input className="sr-only" type="file" accept=".pdf,.txt,.doc,.docx,image/*" onChange={(event) => onUploadEventDocument(focusEvent.id, event.target.files)} /></label>}
+          {onUploadCourseDocument && <label><NotebookText aria-hidden="true" /><span><strong>Verlaufsdokument</strong><small>Aufenthalt oder Teilaufenthalt</small></span><input className="sr-only" type="file" accept=".pdf,.txt,.doc,.docx,image/*" onChange={(event) => onUploadCourseDocument(focusEvent.id, event.target.files)} /></label>}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function V27LengthOfStayCorridor({ codingCase }: { codingCase: CodingCase }) {
+  const currentRun = codingCase.grouperRuns.at(-1)
+  const profile = currentRun?.lengthOfStay
+  const lower = profile?.lowerFirstDiscountDay
+  const mean = profile?.meanDays
+  const upper = profile?.upperFirstSurchargeDay
+  const catalogAvailable = Boolean(profile && mean && mean > 0)
+  const maximum = Math.max(2, Math.ceil(codingCase.stayDays), Math.ceil(lower ?? 0), Math.ceil(mean ?? 0), Math.ceil(upper ?? 0))
+  const position = (day?: number) => day === undefined ? undefined : Math.min(100, Math.max(0, ((day - 1) / Math.max(1, maximum - 1)) * 100))
+  const lowerPosition = position(lower) ?? 0
+  const meanPosition = position(mean)
+  const upperPosition = position(upper) ?? 100
+  const currentPosition = position(codingCase.stayDays) ?? 0
+  const status = !catalogAvailable
+    ? 'Katalogwerte fehlen'
+    : lower !== undefined && codingCase.stayDays <= lower
+      ? 'unterhalb uGVD'
+      : upper !== undefined && codingCase.stayDays >= upper
+        ? 'ab oGVD'
+        : 'im DRG-Korridor'
+  const outside = status === 'unterhalb uGVD' || status === 'ab oGVD'
+  const formatValue = (value?: number) => value === undefined || value <= 0 ? '–' : `${value.toLocaleString('de-DE')} T.`
+
+  return (
+    <section className="v27-stay-corridor" aria-label={`Verweildauer ${codingCase.stayDays} Tage, untere Grenzverweildauer ${lower ?? 'nicht verfügbar'}, mittlere Verweildauer ${mean ?? 'nicht verfügbar'}, obere Grenzverweildauer ${upper ?? 'nicht verfügbar'}`}>
+      <span className="v27-stay-title"><small>Verweildauer · {currentRun?.drg ?? 'DRG offen'}</small><strong>Aktueller Fall im DRG-Korridor</strong><em className={`v27-stay-status ${outside ? 'is-outside' : ''} ${!catalogAvailable ? 'is-missing' : ''}`}>{status}</em></span>
+      <span className="v27-stay-track-wrap" aria-hidden="true">
+        <span className="v27-stay-track">
+          {lower !== undefined && <i className="v27-stay-zone is-lower" style={{ width: `${lowerPosition}%` }} />}
+          <i className="v27-stay-zone is-normal" style={{ left: `${lowerPosition}%`, width: `${Math.max(0, upperPosition - lowerPosition)}%` }} />
+          {upper !== undefined && <i className="v27-stay-zone is-upper" style={{ left: `${upperPosition}%` }} />}
+          {lower !== undefined && <i className="v27-stay-marker" style={{ left: `${lowerPosition}%` }} />}
+          {meanPosition !== undefined && <i className="v27-stay-marker is-mean" style={{ left: `${meanPosition}%` }} />}
+          {upper !== undefined && <i className="v27-stay-marker" style={{ left: `${upperPosition}%` }} />}
+          <b className="v27-stay-current" style={{ left: `${currentPosition}%` }} />
+        </span>
+        <span className="v27-stay-scale-labels"><span>Tag 1</span><span>Tag {maximum}</span></span>
+      </span>
+      <span className="v27-stay-values">
+        <span className="is-current"><small>VWD aktuell</small><strong>{codingCase.stayDays} T.</strong></span>
+        <span><small>uGVD</small><strong>{formatValue(lower)}</strong></span>
+        <span><small>mVWD</small><strong>{formatValue(mean)}</strong></span>
+        <span><small>oGVD</small><strong>{formatValue(upper)}</strong></span>
+      </span>
+    </section>
+  )
+}
+
+function layoutTimelineEvents(events: TreatmentEvent[], stayDays: number, availableWidth: number) {
+  const cardWidth = 148
+  const pixelsPerDay = availableWidth / Math.max(1, stayDays)
+  const requiredGap = Math.max(1, cardWidth / Math.max(1, pixelsPerDay))
+  const latestDayByRow: number[] = []
+  return events.map((event) => {
+    let row = latestDayByRow.findIndex((lastDay) => event.day - lastDay >= requiredGap)
+    if (row === -1) row = latestDayByRow.length
+    latestDayByRow[row] = event.day
+    return { event, row }
+  })
 }
 
 function HypothesisCasePath({ codingCase, events, departments, documents, mode, onOpenEvent, onOpenDocument, onOpenDecision, onUploadEventDocument, onUploadCourseDocument }: {
@@ -567,22 +786,29 @@ function getDepartmentStays(events: TreatmentEvent[], stayDays: number): Departm
   let currentDepartment = admission.department
   let currentStart = 1
 
-  transitions.forEach((event, index) => {
-    if (event.day > currentStart) stays.push({ department: currentDepartment, start: currentStart, end: event.day - 1, intensive: currentDepartment === 'Intensivmedizin' })
+  transitions.forEach((event) => {
+    const transitionDay = Math.min(stayDays, Math.max(1, event.day))
+    const effectiveStart = Math.max(currentStart, transitionDay)
+    if (effectiveStart > currentStart) stays.push({ department: currentDepartment, start: currentStart, end: effectiveStart - 1, intensive: currentDepartment === 'Intensivmedizin' })
     if (event.type === 'Intensiv') {
-      const intensiveEnd = Math.min(stayDays, event.endDay ?? event.day)
-      stays.push({ department: event.department, start: event.day, end: intensiveEnd, intensive: true })
+      const intensiveEnd = Math.min(stayDays, Math.max(effectiveStart, event.endDay ?? effectiveStart))
+      stays.push({ department: event.department, start: effectiveStart, end: intensiveEnd, intensive: true })
       currentStart = intensiveEnd + 1
-      const nextTransition = transitions[index + 1]
-      if (!nextTransition || nextTransition.day > currentStart) currentDepartment = admission.department
     } else {
       currentDepartment = event.department
-      currentStart = event.day
+      currentStart = effectiveStart
     }
   })
 
   if (currentStart <= stayDays) stays.push({ department: currentDepartment, start: currentStart, end: stayDays, intensive: currentDepartment === 'Intensivmedizin' })
-  return stays.filter((stay) => stay.end >= stay.start)
+  return stays.filter((stay) => stay.end >= stay.start).reduce<DepartmentStay[]>((merged, stay) => {
+    const previous = merged.at(-1)
+    if (previous && previous.department === stay.department && previous.intensive === stay.intensive && previous.end + 1 === stay.start) {
+      previous.end = stay.end
+      return merged
+    }
+    return [...merged, { ...stay }]
+  }, [])
 }
 
 function getActivityLane(event: TreatmentEvent): ActivityLaneKey {

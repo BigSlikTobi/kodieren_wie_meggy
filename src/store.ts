@@ -3,7 +3,7 @@ import { initialData } from './data/demo'
 import { getDrgLengthOfStayProfile } from './data/drgCatalog'
 import type { AppData, CodingCase, CodingEntry } from './types'
 
-const STORAGE_KEY = 'kodierpfad-demo-v4'
+const STORAGE_KEY = 'kodierpfad-demo-v5'
 
 function cloneInitialData(): AppData {
   return JSON.parse(JSON.stringify(initialData)) as AppData
@@ -68,7 +68,9 @@ function normalizeData(value: AppData): AppData {
         ...entry,
         origin: entry.origin ?? 'vorkodierung',
         reviewStatus: entry.reviewStatus ?? 'ungeprüft',
+        serviceTime: entry.serviceTime ?? codingCase.timeline.find((event) => event.id === entry.treatmentEventId)?.time,
       })),
+      kisBaselineEntries: (codingCase.kisBaselineEntries ?? codingCase.codingEntries ?? createLegacyCodingEntries(codingCase)).map((entry) => ({ ...entry })),
       grouperRuns: codingCase.grouperRuns.map((run) => ({
         ...run,
         lengthOfStay: run.lengthOfStay ?? getDrgLengthOfStayProfile(run.drg),

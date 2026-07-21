@@ -353,7 +353,10 @@ export function applyDemoVariant(codingCase: CodingCase, variant?: DemoCaseVaria
     },
   ]
 
-  const codingEntries = buildCodingEntries(spec, variant, admissionDate, timeline, ids)
+  const codingEntries = buildCodingEntries(spec, variant, admissionDate, timeline, ids).map((entry) => ({
+    ...entry,
+    serviceTime: entry.type === 'OPS' ? timeline.find((event) => event.id === entry.treatmentEventId)?.time : undefined,
+  }))
   const mainEntry = codingEntries.find((entry) => entry.type === 'HD')!
   const procedureEntries = codingEntries.filter((entry) => entry.type === 'OPS')
 
@@ -391,6 +394,7 @@ export function applyDemoVariant(codingCase: CodingCase, variant?: DemoCaseVaria
       lengthOfStay: getDrgLengthOfStayProfile(spec.drg),
     }],
     codingEntries,
+    kisBaselineEntries: codingEntries.map((entry) => ({ ...entry })),
     dkrMatches: [{ id: `dkr-${variant}-main`, title: 'DKR-Demo · Hauptdiagnose und Prozeduren', relevance: spec.decisionDescription, status: 'spezifisch' }],
     medicalJustification: {
       status: 'entwurf-belegbar',

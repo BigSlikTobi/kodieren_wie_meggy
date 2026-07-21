@@ -30,9 +30,17 @@ export function GrouperInputsDrawer({ codingCase, onClose }: GrouperInputsDrawer
 
         <div className="grouper-result-strip" aria-label="Aktuelles Groupingergebnis">
           <span><small>DRG</small><strong>{currentRun.drg}</strong></span>
-          <span><small>Basis-DRG</small><strong>{currentRun.baseDrg}</strong></span>
+          <span><small>MDC</small><strong>{currentRun.mdc ?? 'offen'}</strong></span>
+          <span><small>Partition</small><strong>{currentRun.partition ?? 'offen'}</strong></span>
           <span><small>PCCL</small><strong>{currentRun.pccL}</strong></span>
           <span><small>Verweildauer</small><strong>{codingCase.stayDays} Tage</strong></span>
+        </div>
+
+        <div className="grouper-los-strip" aria-label="Verweildauergrenzen der Arbeits-DRG">
+          <span><small>uGVD</small><strong>{currentRun.lengthOfStay.lowerFirstDiscountDay ?? '–'}</strong></span>
+          <span><small>mVWD</small><strong>{currentRun.lengthOfStay.meanDays}</strong></span>
+          <span><small>aktuell</small><strong>{codingCase.stayDays}</strong></span>
+          <span><small>oGVD</small><strong>{currentRun.lengthOfStay.upperFirstSurchargeDay ?? '–'}</strong></span>
         </div>
 
         <div className="grouper-input-tabs" role="tablist" aria-label="Grouper-Eingaben nach Bereich">
@@ -49,7 +57,7 @@ export function GrouperInputsDrawer({ codingCase, onClose }: GrouperInputsDrawer
               <GrouperField icon={<UserRound aria-hidden="true" />} label="Alter bei Aufnahme" value={`${codingCase.age} Jahre`} detail="Aus administrativen Falldaten" />
               <GrouperField icon={<Scale aria-hidden="true" />} label="Aufnahmegewicht" value={codingCase.grouperAdministrativeData.admissionWeightGrams ? `${codingCase.grouperAdministrativeData.admissionWeightGrams.toLocaleString('de-DE')} g` : 'Nicht geliefert'} detail={codingCase.grouperAdministrativeData.admissionWeightGrams ? 'Strukturierter Grouper-Wert' : 'Im aktuellen Fall ohne Wert'} muted={!codingCase.grouperAdministrativeData.admissionWeightGrams} />
               <GrouperField icon={<Timer aria-hidden="true" />} label="Beatmungszeit" value={`${ventilationHours} Stunden`} detail={ventilationHours ? 'Aus strukturierten Intervallen summiert' : 'Keine Beatmungszeit geliefert'} />
-              <GrouperField icon={<CalendarDays aria-hidden="true" />} label="Aufenthalt" value={`${formatDate(codingCase.admissionDate)}–${formatDate(codingCase.dischargeDate)}`} detail={`${codingCase.stayDays} Tage · MVD ${currentRun.lengthOfStay.meanDays} · OGV ${currentRun.lengthOfStay.upperFirstSurchargeDay ?? '–'}`} />
+              <GrouperField icon={<CalendarDays aria-hidden="true" />} label="Aufenthalt" value={`${formatDate(codingCase.admissionDate)}–${formatDate(codingCase.dischargeDate)}`} detail={`${codingCase.stayDays} Tage · uGVD ${currentRun.lengthOfStay.lowerFirstDiscountDay ?? '–'} · mVWD ${currentRun.lengthOfStay.meanDays} · oGVD ${currentRun.lengthOfStay.upperFirstSurchargeDay ?? '–'}`} />
               <GrouperField icon={<Hospital aria-hidden="true" />} label="Fachabteilungen" value={departments.join(' → ')} detail={codingCase.careForm} />
               <GrouperField icon={<Activity aria-hidden="true" />} label="Versorgungsart" value={currentRun.lengthOfStay.careSetting} detail={`Regelpaket ${codingCase.year}`} />
             </div>
@@ -85,7 +93,6 @@ export function GrouperInputsDrawer({ codingCase, onClose }: GrouperInputsDrawer
           </section>
         )}
 
-        <div className="grouper-input-note">Diese Ansicht macht die Eingabebasis des Groupers nachvollziehbar. Die manuelle KIS-Übertragung erfolgt separat über das Kodierergebnis.</div>
       </aside>
     </div>
   )
@@ -102,12 +109,13 @@ function GrouperField({ icon, label, value, detail, muted = false }: { icon: Rea
 function GrouperCodeRow({ entry, codingCase }: { entry: CodingEntry; codingCase: CodingCase }) {
   const event = codingCase.timeline.find((item) => item.id === entry.treatmentEventId)
   const date = entry.serviceDate ? formatDate(entry.serviceDate) : 'Datum offen'
-  const time = event?.time ? ` · ${event.time}` : ''
+  const time = entry.serviceTime ?? event?.time
+  const timeLabel = time ? ` · ${time}` : ''
   return (
     <div className="grouper-code-row">
       <span className="coding-type-badge">{entry.type}</span>
       <code>{entry.code}</code>
-      <span><strong>{entry.description}</strong><small>{entry.type === 'OPS' ? `${date}${time} · ${entry.department ?? event?.department ?? 'Fachabteilung offen'}${entry.quantity ? ` · Menge ${entry.quantity}` : ''}` : `${entry.department ?? 'Gesamtfall'} · ${groupingImpactLabel(entry)}`}</small><em>Quelle: {entry.source}</em></span>
+      <span><strong>{entry.description}</strong><small>{entry.type === 'OPS' ? `${date}${timeLabel} · ${entry.department ?? event?.department ?? 'Fachabteilung offen'}${entry.quantity ? ` · Menge ${entry.quantity}` : ''}` : `${entry.department ?? 'Gesamtfall'} · ${groupingImpactLabel(entry)}${entry.laterality && entry.laterality !== 'keine' ? ` · ${entry.laterality}` : ''}`}</small><em>Quelle: {entry.source}</em></span>
       <span className={`status-pill status-${entry.reviewStatus === 'belegt' ? 'belegt' : entry.reviewStatus === 'widersprüchlich' ? 'widersprüchlich' : 'wahrscheinlich'}`}>{entry.reviewStatus}</span>
     </div>
   )

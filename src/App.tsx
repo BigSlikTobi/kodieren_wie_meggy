@@ -73,6 +73,21 @@ export default function App() {
     setData((current) => ({ ...current, cases: current.cases.map((item) => item.id === currentCase.id ? updater(item) : item) }))
   }
 
+  const confirmIntake = async () => {
+    if (!currentCase) return
+    const confirmedCase = {
+      ...currentCase,
+      intakeConfirmed: true,
+      intakeSources: currentCase.intakeSources.map((source) => source.status === 'widersprüchlich' ? source : { ...source, status: 'bestätigt' as const }),
+    }
+    const run = await grouperClient.group(confirmedCase, 'Fallbasis bestätigt')
+    setData((current) => ({
+      ...current,
+      cases: current.cases.map((item) => item.id === confirmedCase.id ? { ...confirmedCase, grouperRuns: [...confirmedCase.grouperRuns, run] } : item),
+    }))
+    setView('case')
+  }
+
   const goToFallHome = () => setView(currentCase ? (currentCase.intakeConfirmed ? 'case' : 'intake') : 'worklist')
 
   const confirmReset = () => {
@@ -87,7 +102,7 @@ export default function App() {
       <header className="app-header">
         <button className="brand" type="button" onClick={goToFallHome}>
           <span className="brand-mark"><Route aria-hidden="true" /></span>
-          <span>Kodierpfad <small>Version 26 · Hypothesenarbeitsplatz</small></span>
+          <span>Kodierpfad <small>Version 27 · Hypothesenarbeitsplatz</small></span>
         </button>
         <nav className="main-nav" aria-label="Hauptnavigation">
           <button className={['worklist', 'start', 'intake', 'case'].includes(view) ? 'active' : ''} type="button" onClick={goToFallHome}>
@@ -119,7 +134,8 @@ export default function App() {
             onAddSource={(source) => mutateCurrentCase((codingCase) => ({ ...codingCase, intakeSources: [...codingCase.intakeSources, source] }))}
             onAddEvent={(event: TreatmentEvent) => mutateCurrentCase((codingCase) => ({ ...codingCase, timeline: [...codingCase.timeline, event].sort((a, b) => a.day - b.day) }))}
             onRemoveEvent={(eventId) => mutateCurrentCase((codingCase) => ({ ...codingCase, timeline: codingCase.timeline.filter((event) => event.id !== eventId) }))}
-            onConfirm={() => { mutateCurrentCase((codingCase) => ({ ...codingCase, intakeConfirmed: true, intakeSources: codingCase.intakeSources.map((source) => source.status === 'widersprüchlich' ? source : { ...source, status: 'bestätigt' }) })); setView('case') }}
+            onUpdateCase={(next) => mutateCurrentCase(() => next)}
+            onConfirm={confirmIntake}
           />
         )}
         {view === 'case' && currentCase && (

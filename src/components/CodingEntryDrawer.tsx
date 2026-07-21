@@ -12,6 +12,7 @@ export interface CodingEntryInput {
   evidenceDocumentId: string
   treatmentEventId?: string
   serviceDate?: string
+  serviceTime?: string
   serviceEndDate?: string
   laterality?: CodingEntry['laterality']
   quantity?: number
@@ -47,6 +48,7 @@ export function CodingEntryDrawer({ document, codingCase, entries, running, onCl
   const [treatmentEventId, setTreatmentEventId] = useState(linkedEvents[0]?.id ?? '')
   const initialDate = linkedEvents[0] ? dateForEvent(codingCase, linkedEvents[0]) : codingCase.admissionDate
   const [serviceDate, setServiceDate] = useState(initialDate ?? '')
+  const [serviceTime, setServiceTime] = useState(linkedEvents[0]?.time ?? '')
   const [serviceEndDate, setServiceEndDate] = useState('')
   const [laterality, setLaterality] = useState<NonNullable<CodingEntry['laterality']>>('keine')
   const [quantity, setQuantity] = useState(1)
@@ -67,6 +69,7 @@ export function CodingEntryDrawer({ document, codingCase, entries, running, onCl
       setDescription(entry.description)
       setTreatmentEventId(entry.treatmentEventId ?? linkedEvents[0]?.id ?? '')
       setServiceDate(entry.serviceDate ?? initialDate ?? '')
+      setServiceTime(entry.serviceTime ?? linkedEvents[0]?.time ?? '')
       setServiceEndDate(entry.serviceEndDate ?? '')
       setLaterality(entry.laterality ?? 'keine')
       setQuantity(entry.quantity ?? 1)
@@ -84,6 +87,7 @@ export function CodingEntryDrawer({ document, codingCase, entries, running, onCl
     setDescription(entry.description)
     setTreatmentEventId(entry.treatmentEventId ?? '')
     setServiceDate(entry.serviceDate ?? '')
+    setServiceTime(entry.serviceTime ?? codingCase.timeline.find((event) => event.id === entry.treatmentEventId)?.time ?? '')
     setServiceEndDate(entry.serviceEndDate ?? '')
     setLaterality(entry.laterality ?? 'keine')
     setQuantity(entry.quantity ?? 1)
@@ -105,6 +109,10 @@ export function CodingEntryDrawer({ document, codingCase, entries, running, onCl
       setError('Es gibt bereits eine aktive Hauptdiagnose. Nutze „Ändern“ für einen Wechsel.')
       return
     }
+    if (action !== 'deleted' && type === 'OPS' && (!serviceDate || !serviceTime)) {
+      setError('Für OPS werden Leistungsdatum und Uhrzeit für den Grouper benötigt.')
+      return
+    }
     await onSave({
       action,
       type: action === 'added' ? type : targetEntry!.type,
@@ -114,8 +122,9 @@ export function CodingEntryDrawer({ document, codingCase, entries, running, onCl
       evidenceDocumentId: document.id,
       treatmentEventId: treatmentEventId || undefined,
       serviceDate: serviceDate || undefined,
+      serviceTime: serviceTime || undefined,
       serviceEndDate: serviceEndDate || undefined,
-      laterality: type === 'OPS' ? laterality : undefined,
+      laterality,
       quantity: type === 'OPS' ? quantity : undefined,
       department: department || undefined,
       reviewStatus,
@@ -179,6 +188,7 @@ export function CodingEntryDrawer({ document, codingCase, entries, running, onCl
                   setTreatmentEventId(id)
                   if (linkedEvent) {
                     setServiceDate(dateForEvent(codingCase, linkedEvent) ?? '')
+                    setServiceTime(linkedEvent.time ?? '')
                     setDepartment(linkedEvent.department)
                   }
                 }}>
@@ -192,12 +202,15 @@ export function CodingEntryDrawer({ document, codingCase, entries, running, onCl
               <label>Leistungsdatum
                 <input aria-label="Leistungsdatum" type="date" value={serviceDate} min={codingCase.admissionDate} max={codingCase.dischargeDate} onChange={(event) => setServiceDate(event.target.value)} />
               </label>
+              {type === 'OPS' && <label>Uhrzeit
+                <input aria-label="Leistungsuhrzeit" type="time" value={serviceTime} onChange={(event) => setServiceTime(event.target.value)} />
+              </label>}
               <label>Enddatum <span>(optional)</span>
                 <input aria-label="Enddatum" type="date" value={serviceEndDate} min={serviceDate || codingCase.admissionDate} max={codingCase.dischargeDate} onChange={(event) => setServiceEndDate(event.target.value)} />
               </label>
-              {type === 'OPS' && <label>Seitenlokalisation
+              <label>Seitenlokalisation <span>(kodeabhängig)</span>
                 <select aria-label="Seitenlokalisation" value={laterality} onChange={(event) => setLaterality(event.target.value as NonNullable<CodingEntry['laterality']>)}><option value="keine">Keine</option><option value="links">Links</option><option value="rechts">Rechts</option><option value="beidseits">Beidseits</option></select>
-              </label>}
+              </label>
               {type === 'OPS' && <label>Anzahl
                 <input aria-label="Anzahl" type="number" min="1" value={quantity} onChange={(event) => setQuantity(Math.max(1, Number(event.target.value)))} />
               </label>}

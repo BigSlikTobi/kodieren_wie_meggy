@@ -61,6 +61,8 @@ export class MockGrouperClient implements GrouperClient {
       timestamp: new Date().toISOString(),
       drg,
       baseDrg: drg.slice(0, 3),
+      mdc: getDemoMdc(drg),
+      partition: getDemoPartition(codingCase),
       pccL: hasMainDiagnosis ? 3 : 2,
       reason,
       changed,
@@ -68,4 +70,24 @@ export class MockGrouperClient implements GrouperClient {
       lengthOfStay: getDrgLengthOfStayProfile(drg),
     }
   }
+}
+
+function getDemoMdc(drg: string) {
+  const major = drg.trim().charAt(0).toUpperCase()
+  return {
+    A: 'Prä-MDC',
+    B: '01 · Nervensystem',
+    E: '04 · Atmungsorgane',
+    F: '05 · Kreislaufsystem',
+    G: '06 · Verdauungsorgane',
+    I: '08 · Muskel-Skelett-System',
+    L: '11 · Harnorgane',
+    T: '18B · Infektiöse Erkrankungen',
+  }[major] ?? 'MDC offen'
+}
+
+function getDemoPartition(codingCase: CodingCase): 'O' | 'A' | 'M' {
+  if (codingCase.timeline.some((event) => event.type === 'Eingriff')) return 'O'
+  if (codingCase.timeline.some((event) => event.type === 'Diagnostik' && /invasiv|katheter|biops|endoskop/i.test(event.label))) return 'A'
+  return 'M'
 }

@@ -186,6 +186,8 @@ export interface GrouperRun {
   timestamp: string
   drg: string
   baseDrg: string
+  mdc?: string
+  partition?: 'O' | 'A' | 'M'
   pccL: number
   reason: string
   changed: boolean
@@ -214,6 +216,7 @@ export interface CodingEntry {
   evidenceDocumentId?: string
   treatmentEventId?: string
   serviceDate?: string
+  serviceTime?: string
   serviceEndDate?: string
   laterality?: 'keine' | 'links' | 'rechts' | 'beidseits'
   quantity?: number
@@ -339,6 +342,8 @@ export interface CodingCase {
   decisions: CaseDecision[]
   grouperRuns: GrouperRun[]
   codingEntries: CodingEntry[]
+  /** Unveränderter KIS-Import vor Korrekturen an der Fallbasis. */
+  kisBaselineEntries?: CodingEntry[]
   technicalValues: TechnicalCaseValue[]
   grouperAdministrativeData: GrouperAdministrativeData
   medicalJustification: MedicalJustification
