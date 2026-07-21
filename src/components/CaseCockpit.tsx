@@ -30,7 +30,7 @@ import { CaseJourney } from './CaseJourney'
 import { CollaborationDrawer } from './CollaborationDrawer'
 import { CodingEntryDrawer, type CodingEntryInput } from './CodingEntryDrawer'
 import { CodingTransferDrawer } from './CodingTransferDrawer'
-import { DecisionCodingWorkspace } from './DecisionCodingWorkspace'
+import { DecisionCodingWorkspace, getCollaborationRoute } from './DecisionCodingWorkspace'
 import { DirectCodingDrawer, type DirectCodingInput } from './DirectCodingDrawer'
 import { DocumentEvidenceViewer } from './DocumentEvidenceViewer'
 import { GrouperInputsDrawer } from './GrouperInputsDrawer'
@@ -539,7 +539,6 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
     const decision = codingCase.decisions.find((item) => item.id === input.decisionId)
     const target = input.targetEntryId ? codingCase.codingEntries.find((entry) => entry.id === input.targetEntryId) : undefined
     if (!decision || (input.action !== 'added' && !target)) return
-    const evidenceMapItem = codingCase.documentMap.find((document) => document.linkedDecisionId === decision.id && document.availability === 'vorhanden')
     setRunningDecision('direct-coding')
     const entryId = target?.id ?? `coding-direct-${Date.now()}`
     const source = `Direkteingabe zur Prüfung „${decision.title}“`
@@ -554,7 +553,6 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
           reviewStatus: 'ungeprüft',
           active: true,
           source,
-          evidenceDocumentId: evidenceMapItem?.id,
           treatmentEventId: input.treatmentEventId,
           serviceDate: input.serviceDate,
           serviceTime: input.serviceTime,
@@ -577,7 +575,6 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
             reviewStatus: 'ungeprüft',
             active: false,
             source,
-            evidenceDocumentId: evidenceMapItem?.id,
             assessedIteration: currentRun.iteration,
           }
           return {
@@ -591,7 +588,6 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
             reviewStatus: 'ungeprüft',
             active: true,
             source,
-            evidenceDocumentId: evidenceMapItem?.id,
             treatmentEventId: input.treatmentEventId,
             serviceDate: input.serviceDate,
             serviceTime: input.serviceTime,
@@ -859,7 +855,12 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
                     wikiStarted={focusedWikiStarted}
                     consultationStatus={focusedConsultation?.status}
                     onKnowledgeChange={(knowledge) => setDecisionKnowledge(focusedDecision.id, knowledge)}
-                    onManualCoding={() => { setDirectCodingTargetEntryId(undefined); setDirectCodingDecisionId(focusedDecision.id) }}
+                    onManualCoding={() => {
+                      setDirectCodingTargetEntryId(undefined)
+                      setDirectCodingDecisionId(undefined)
+                      if (focusedDocument?.availability === 'vorhanden') setCodingEditorDocumentId(focusedDocument.id)
+                      else setDirectCodingDecisionId(focusedDecision.id)
+                    }}
                     onValidatePrecode={() => void completeCodingDecision(focusedDecision.id, true)}
                     onWiki={() => setCollaboration({ mode: 'wiki', decisionId: focusedDecision.id })}
                     onConsult={() => setCollaboration({ mode: 'consult', decisionId: focusedDecision.id })}
@@ -952,7 +953,13 @@ export function CaseCockpit({ codingCase, hospitals, grouperClient, onDataChange
             onCreateConsultation={(input) => createConsultation(decision.id, input)}
             onCompleteConsultation={(consultationId, result, finding) => void completeConsultation(consultationId, result, finding)}
             onSendWikiMessage={(text) => sendWikiMessage(decision.id, text)}
-            onOpenCoding={() => { setCollaboration(undefined); setDirectCodingTargetEntryId(undefined); setDirectCodingDecisionId(decision.id) }}
+            onOpenCoding={(documentId) => {
+              setCollaboration(undefined)
+              setDirectCodingTargetEntryId(undefined)
+              setDirectCodingDecisionId(undefined)
+              if (documentId && codingCase.documentMap.some((document) => document.id === documentId && document.availability === 'vorhanden')) setCodingEditorDocumentId(documentId)
+              else setDirectCodingDecisionId(decision.id)
+            }}
             focusDocumentId={collaboration.documentId}
             previewUrls={documentPreviewUrls}
           />
@@ -988,19 +995,6 @@ async function createUploadedDocumentPreview(file: File, clinicalContext: string
     'Entlassung und Weiterbehandlung: Der dokumentierte Abschluss des Aufenthalts ist mit der aktuellen DRG-Hypothese abzugleichen.',
     'Hinweis zum Prototyp: Bei PDF- und Bilddateien wird hier die simulierte LLM-Textextraktion angezeigt. Über „Original“ bleibt der hochgeladene Inhalt in dieser Sitzung zusätzlich einsehbar.',
   ].join('\n\n')
-}
-
-function getCollaborationRoute(decision: CaseDecision): { kind: 'self' | 'wiki' | 'consult'; title: string; reason: string } {
-  if (decision.knowledge === 'fremd') {
-    return { kind: 'consult', title: 'Menschliches Kodierkonsil', reason: 'Ohne Grundkenntnisse kann bereits die Arbeitshypothese falsch sein.' }
-  }
-  if (decision.status === 'widersprüchlich' || (decision.groupingRelevance === 'relevant' && decision.knowledge !== 'vertraut')) {
-    return { kind: 'consult', title: 'Menschliches Kodierkonsil', reason: 'Die offene Frage ist gruppierungsrelevant und fachlich nicht sicher.' }
-  }
-  if (decision.groupingRelevance === 'keine' || decision.groupingRelevance === 'möglich') {
-    return { kind: 'wiki', title: 'Wiki-Chat zur Einordnung', reason: 'Grundwissen reicht aus; der Chat liefert Hintergrund, aber keine Fallfreigabe.' }
-  }
-  return { kind: 'self', title: 'Geführte Eigenprüfung', reason: 'Der Sachverhalt ist bekannt und kann mit Dokumenten und Regeln sicher validiert werden.' }
 }
 
 function getCaseSupport(codingCase: CodingCase, nextDecision?: CaseDecision): { kind: 'self' | 'wiki' | 'consult'; title: string; reason: string } {

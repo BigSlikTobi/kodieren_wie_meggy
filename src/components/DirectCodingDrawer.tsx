@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { CheckCircle2, FileCode2, Plus, RotateCw, Save, ShieldAlert, Trash2, X } from 'lucide-react'
+import { getCatalogText } from '../data/codeCatalog'
 import type { CaseDecision, CodingCase, CodingChange, CodingEntry, CodingEntryType } from '../types'
+import { CatalogCodeText, CodeCatalogSearch } from './CodeCatalogSearch'
 import { dateForEvent, formatDay } from './TreatmentRibbon'
 
 export interface DirectCodingInput {
@@ -55,13 +57,15 @@ export function DirectCodingDrawer({ codingCase, decision, initialEntryId, runni
   const [error, setError] = useState('')
   const [savedMessage, setSavedMessage] = useState('')
   const targetEntry = activeEntries.find((entry) => entry.id === targetEntryId)
+  const effectiveType = action === 'added' ? type : targetEntry?.type ?? type
+  const catalogKind = effectiveType === 'OPS' ? 'OPS' : 'ICD'
 
   const loadEntry = (entry?: CodingEntry) => {
     if (!entry) return
     setTargetEntryId(entry.id)
     setType(entry.type)
     setCode(entry.code)
-    setDescription(entry.description)
+    setDescription(getCatalogText(entry.type === 'OPS' ? 'OPS' : 'ICD', entry.code, entry.description).shortText)
     setTreatmentEventId(entry.treatmentEventId ?? '')
     setServiceDate(entry.serviceDate ?? codingCase.admissionDate ?? '')
     setServiceTime(entry.serviceTime ?? codingCase.timeline.find((event) => event.id === entry.treatmentEventId)?.time ?? '')
@@ -160,28 +164,36 @@ export function DirectCodingDrawer({ codingCase, decision, initialEntryId, runni
 
         {action !== 'added' && <label>Bestehenden Kode auswählen
           <select aria-label="Bestehenden Kode für freie Kodierung auswählen" value={targetEntryId} onChange={(event) => loadEntry(activeEntries.find((entry) => entry.id === event.target.value))}>
-            {activeEntries.map((entry) => <option value={entry.id} key={entry.id}>{entry.type} · {entry.code} · {entry.description}</option>)}
+            {activeEntries.map((entry) => <option value={entry.id} key={entry.id}>{entry.type} · {entry.code} · {getCatalogText(entry.type === 'OPS' ? 'OPS' : 'ICD', entry.code, entry.description).shortText}</option>)}
           </select>
         </label>}
 
-        {action === 'added' && <label>Kodetyp
-          <select aria-label="Kodetyp für freie Kodierung" value={type} onChange={(event) => setType(event.target.value as CodingEntryType)}>
-            <option value="HD">Hauptdiagnose (ICD)</option>
-            <option value="ND">Nebendiagnose (ICD)</option>
-            <option value="OPS">Prozedur (OPS)</option>
-          </select>
-        </label>}
+        {action === 'added' && <fieldset className="coding-type-choice">
+          <legend>Welche Kodierung möchtest du ergänzen?</legend>
+          {([['HD', 'Hauptdiagnose (ICD)'], ['ND', 'Nebendiagnose (ICD)'], ['OPS', 'Prozedur (OPS)']] as Array<[CodingEntryType, string]>).map(([value, label]) => <label className={type === value ? 'active' : ''} key={value}>
+            <input type="radio" name="direct-code-type" value={value} checked={type === value} onChange={() => {
+              setType(value)
+              setCode('')
+              setDescription('')
+              setError('')
+            }} />
+            <span>{label}</span>
+          </label>)}
+        </fieldset>}
 
         {action !== 'deleted' ? <div className="coding-entry-fields">
-          <label>ICD- oder OPS-Kode
-            <input aria-label="Freier ICD- oder OPS-Kode" value={code} onChange={(event) => setCode(event.target.value)} placeholder={(action === 'added' ? type : targetEntry?.type) === 'OPS' ? 'z. B. 8-98e.0' : 'z. B. J18.9'} autoComplete="off" />
+          <CodeCatalogSearch kind={catalogKind} value={code} fallbackText={description} onSelect={(nextCode, shortText) => {
+            setCode(nextCode)
+            setDescription(shortText)
+          }} />
+          <label>Katalogtext / Arbeitsbeschreibung
+            <textarea aria-label="Beschreibung der freien Kodierung" rows={2} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Wird bei der Auswahl aus dem Katalog übernommen" />
           </label>
-          <label>Beschreibung <span>(optional)</span>
-            <textarea aria-label="Beschreibung der freien Kodierung" rows={3} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Kurze fallbezogene Einordnung" />
-          </label>
-          <details className="direct-coding-parameters">
-            <summary>Kodierparameter ergänzen</summary>
-            <div className="coding-parameter-grid">
+          {effectiveType === 'OPS' && <div className="ops-format-help">
+            <strong>OPS wird in getrennten Feldern erfasst</strong>
+            <small>Kode, Datum und Uhrzeit gehören jeweils in das eigene Feld. Die Werte aus dem Behandlungsereignis sind bereits vorausgefüllt und müssen nur noch geprüft werden.</small>
+          </div>}
+          <div className="coding-parameter-grid">
               <label>Ereignisbezug
                 <select aria-label="Ereignisbezug der freien Kodierung" value={treatmentEventId} onChange={(event) => {
                   const id = event.target.value
@@ -198,14 +210,13 @@ export function DirectCodingDrawer({ codingCase, decision, initialEntryId, runni
                 </select>
               </label>
               <label>Fachabteilung<input aria-label="Fachabteilung der freien Kodierung" value={department} onChange={(event) => setDepartment(event.target.value)} /></label>
-              <label>Leistungsdatum<input aria-label="Leistungsdatum der freien Kodierung" type="date" value={serviceDate} min={codingCase.admissionDate} max={codingCase.dischargeDate} onChange={(event) => setServiceDate(event.target.value)} /></label>
-              {(action === 'added' ? type : targetEntry?.type) === 'OPS' && <label>Uhrzeit<input aria-label="Leistungsuhrzeit der freien Kodierung" type="time" value={serviceTime} onChange={(event) => setServiceTime(event.target.value)} /></label>}
+              <label>{effectiveType === 'OPS' ? 'OPS-Leistungsdatum' : 'Diagnose-Bezugsdatum'}<input aria-label="Leistungsdatum der freien Kodierung" type="date" value={serviceDate} min={codingCase.admissionDate} max={codingCase.dischargeDate} onChange={(event) => setServiceDate(event.target.value)} /></label>
+              {effectiveType === 'OPS' && <label>OPS-Uhrzeit<input aria-label="Leistungsuhrzeit der freien Kodierung" type="time" value={serviceTime} onChange={(event) => setServiceTime(event.target.value)} /></label>}
               <label>Enddatum <span>(optional)</span><input aria-label="Enddatum der freien Kodierung" type="date" value={serviceEndDate} min={serviceDate || codingCase.admissionDate} max={codingCase.dischargeDate} onChange={(event) => setServiceEndDate(event.target.value)} /></label>
               <label>Seitenlokalisation <span>(kodeabhängig)</span><select aria-label="Seitenlokalisation der freien Kodierung" value={laterality} onChange={(event) => setLaterality(event.target.value as NonNullable<CodingEntry['laterality']>)}><option value="keine">Keine</option><option value="links">Links</option><option value="rechts">Rechts</option><option value="beidseits">Beidseits</option></select></label>
-              {(action === 'added' ? type : targetEntry?.type) === 'OPS' && <label>Anzahl<input aria-label="Anzahl der freien Kodierung" type="number" min="1" value={quantity} onChange={(event) => setQuantity(Math.max(1, Number(event.target.value)))} /></label>}
-            </div>
-          </details>
-        </div> : targetEntry ? <div className="coding-delete-preview"><Trash2 aria-hidden="true" /><span><strong>{targetEntry.type} · {targetEntry.code}</strong><small>{targetEntry.description}</small><span>Bleibt als gelöscht in der KIS-Übergabe und Historie sichtbar.</span></span></div> : null}
+              {effectiveType === 'OPS' && <label>Anzahl<input aria-label="Anzahl der freien Kodierung" type="number" min="1" value={quantity} onChange={(event) => setQuantity(Math.max(1, Number(event.target.value)))} /></label>}
+          </div>
+        </div> : targetEntry ? <div className="coding-delete-preview"><Trash2 aria-hidden="true" /><span><strong>{targetEntry.type} · {targetEntry.code}</strong><CatalogCodeText compact kind={targetEntry.type === 'OPS' ? 'OPS' : 'ICD'} code={targetEntry.code} fallbackText={targetEntry.description} /><span>Bleibt als gelöscht in der KIS-Übergabe und Historie sichtbar.</span></span></div> : null}
 
         <div className="coding-iteration-preview">
           <RotateCw aria-hidden="true" />

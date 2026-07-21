@@ -200,6 +200,29 @@ describe('Kodierpfad – geführter Arbeitsablauf', () => {
     expect(returnToCoding).toBeEnabled()
   })
 
+  it('ermöglicht nach einem Dokumentupload eine verständliche OPS-Erfassung mit Katalogsuche', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await openManualCockpit(user)
+    const map = screen.getByRole('region', { name: 'Gemeinsame Fallkarte' })
+    await user.upload(within(map).getByLabelText(/Dokument zu diesem Event/i), new File(['demo'], 'interventionsbericht.pdf', { type: 'application/pdf' }))
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /Ich kodiere selbst/i })).toBeInTheDocument())
+    await user.click(screen.getByRole('button', { name: /Ich kodiere selbst/i }))
+    const drawer = screen.getByRole('dialog', { name: /ICD \/ OPS erfassen/i })
+    expect(within(drawer).getByText(/Dokumentnachweis · neue Iteration/i)).toBeInTheDocument()
+    expect(within(drawer).getByText(/Belegquelle/i)).toBeInTheDocument()
+    await user.click(within(drawer).getByLabelText(/Prozedur \(OPS\)/i))
+
+    const search = within(drawer).getByLabelText(/OPS-Code oder Begriff suchen/i)
+    expect(within(drawer).getByText(/OPS wird in getrennten Feldern erfasst/i)).toBeInTheDocument()
+    expect(within(drawer).getByText('OPS-Leistungsdatum')).toBeInTheDocument()
+    expect(within(drawer).getByText('OPS-Uhrzeit')).toBeInTheDocument()
+    await user.type(search, 'Bronchoskopie')
+    await user.click(within(drawer).getByRole('option', { name: /1-620\.0.*Diagnostische Tracheobronchoskopie/i }))
+    expect(within(drawer).getByText(/BfArM · 2026 · Demoindex/i)).toBeInTheDocument()
+  })
+
   it('führt nach Pflichtprüfungen über Regelprüfung zur manuellen KIS-Übergabe', async () => {
     const user = userEvent.setup()
     render(<App />)
@@ -225,13 +248,13 @@ describe('Kodierpfad – geführter Arbeitsablauf', () => {
     expect(screen.getByRole('table', { name: /KIS-Übertragungsliste/i })).toBeInTheDocument()
     expect(screen.getAllByText(/C34.9|8-542.11/i).length).toBeGreaterThan(0)
     expect(screen.getByText(/Keine Schnittstelle zum Primärsystem/i)).toBeInTheDocument()
-    const finalClose = screen.getByRole('button', { name: /KIS-Übernahme bestätigen und Fall abschließen/i })
-    expect(finalClose).toBeDisabled()
-    for (const checkbox of screen.getAllByRole('checkbox')) await user.click(checkbox)
+    const finalClose = screen.getByRole('button', { name: /Alle Änderungen als im KIS übernommen bestätigen/i })
     expect(finalClose).toBeEnabled()
     await user.click(finalClose)
     expect(screen.getByRole('heading', { name: /Fall sicher abgeschlossen/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Nächsten Fall auswählen/i })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Nächsten Fall auswählen/i }))
+    expect(screen.getByRole('button', { name: /Abschluss ansehen/i })).toBeInTheDocument()
+    expect(screen.getAllByText(/^Abgeschlossen$/i).length).toBeGreaterThan(0)
   })
 
   it('zeigt sekundäre Grouper-Eingaben weiterhin bei Bedarf', async () => {

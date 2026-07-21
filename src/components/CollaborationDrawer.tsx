@@ -16,7 +16,7 @@ interface CollaborationDrawerProps {
   onCreateConsultation: (input: Pick<CodingConsultation, 'specialty' | 'question' | 'expert' | 'priority'>) => void
   onCompleteConsultation: (consultationId: string, result: NonNullable<CodingConsultation['result']>, finding: string) => void
   onSendWikiMessage: (text: string) => void
-  onOpenCoding: () => void
+  onOpenCoding: (documentId?: string) => void
   focusDocumentId?: string
   previewUrls?: Record<string, string>
 }
@@ -121,7 +121,7 @@ export function CollaborationDrawer({
               setEvidenceReviewed={setEvidenceReviewed}
               hasEvidence={Boolean(selectedDocument)}
               onComplete={onCompleteConsultation}
-              onOpenCoding={onOpenCoding}
+              onOpenCoding={() => onOpenCoding(selectedDocument?.id)}
             />
           ) : (
             <form className="consult-form" onSubmit={(event) => {
@@ -139,7 +139,7 @@ export function CollaborationDrawer({
             </form>
           )
         ) : (
-          <WikiChat thread={thread} decision={decision} message={message} setMessage={setMessage} onSend={onSendWikiMessage} onOpenCoding={onOpenCoding} evidenceReviewed={evidenceReviewed} setEvidenceReviewed={setEvidenceReviewed} hasEvidence={Boolean(selectedDocument)} />
+          <WikiChat thread={thread} decision={decision} message={message} setMessage={setMessage} onSend={onSendWikiMessage} onOpenCoding={() => onOpenCoding(selectedDocument?.id)} evidenceReviewed={evidenceReviewed} setEvidenceReviewed={setEvidenceReviewed} hasEvidence={Boolean(selectedDocument)} />
         )}
       </aside>
     </div>

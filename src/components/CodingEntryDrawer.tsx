@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { FileCode2, Plus, RotateCw, Save, Trash2, X } from 'lucide-react'
 import type { CodingCase, CodingChange, CodingEntry, CodingEntryType, CodingReviewStatus, DocumentMapItem } from '../types'
+import { getCatalogText } from '../data/codeCatalog'
+import { CatalogCodeText, CodeCatalogSearch } from './CodeCatalogSearch'
 import { dateForEvent, formatDay } from './TreatmentRibbon'
 
 export interface CodingEntryInput {
@@ -56,6 +58,8 @@ export function CodingEntryDrawer({ document, codingCase, entries, running, onCl
   const [reviewStatus, setReviewStatus] = useState<CodingReviewStatus>('wahrscheinlich')
   const [error, setError] = useState('')
   const targetEntry = activeEntries.find((entry) => entry.id === targetEntryId)
+  const effectiveType = action === 'added' ? type : targetEntry?.type ?? type
+  const catalogKind = effectiveType === 'OPS' ? 'OPS' : 'ICD'
 
   const changeAction = (nextAction: CodingEntryInput['action']) => {
     setAction(nextAction)
@@ -66,7 +70,7 @@ export function CodingEntryDrawer({ document, codingCase, entries, running, onCl
       setTargetEntryId(entry.id)
       setType(entry.type)
       setCode(entry.code)
-      setDescription(entry.description)
+      setDescription(getCatalogText(entry.type === 'OPS' ? 'OPS' : 'ICD', entry.code, entry.description).shortText)
       setTreatmentEventId(entry.treatmentEventId ?? linkedEvents[0]?.id ?? '')
       setServiceDate(entry.serviceDate ?? initialDate ?? '')
       setServiceTime(entry.serviceTime ?? linkedEvents[0]?.time ?? '')
@@ -84,7 +88,7 @@ export function CodingEntryDrawer({ document, codingCase, entries, running, onCl
     if (!entry) return
     setType(entry.type)
     setCode(entry.code)
-    setDescription(entry.description)
+    setDescription(getCatalogText(entry.type === 'OPS' ? 'OPS' : 'ICD', entry.code, entry.description).shortText)
     setTreatmentEventId(entry.treatmentEventId ?? '')
     setServiceDate(entry.serviceDate ?? '')
     setServiceTime(entry.serviceTime ?? codingCase.timeline.find((event) => event.id === entry.treatmentEventId)?.time ?? '')
@@ -109,7 +113,7 @@ export function CodingEntryDrawer({ document, codingCase, entries, running, onCl
       setError('Es gibt bereits eine aktive Hauptdiagnose. Nutze „Ändern“ für einen Wechsel.')
       return
     }
-    if (action !== 'deleted' && type === 'OPS' && (!serviceDate || !serviceTime)) {
+    if (action !== 'deleted' && effectiveType === 'OPS' && (!serviceDate || !serviceTime)) {
       setError('Für OPS werden Leistungsdatum und Uhrzeit für den Grouper benötigt.')
       return
     }
@@ -125,7 +129,7 @@ export function CodingEntryDrawer({ document, codingCase, entries, running, onCl
       serviceTime: serviceTime || undefined,
       serviceEndDate: serviceEndDate || undefined,
       laterality,
-      quantity: type === 'OPS' ? quantity : undefined,
+      quantity: effectiveType === 'OPS' ? quantity : undefined,
       department: department || undefined,
       reviewStatus,
     })
@@ -157,29 +161,37 @@ export function CodingEntryDrawer({ document, codingCase, entries, running, onCl
         {action !== 'added' && (
           <label>Bestehenden Kode auswählen
             <select aria-label="Bestehenden Kode auswählen" value={targetEntryId} onChange={(event) => changeTarget(event.target.value)}>
-              {activeEntries.map((entry) => <option value={entry.id} key={entry.id}>{entry.type} · {entry.code} · {entry.description}</option>)}
+              {activeEntries.map((entry) => <option value={entry.id} key={entry.id}>{entry.type} · {entry.code} · {getCatalogText(entry.type === 'OPS' ? 'OPS' : 'ICD', entry.code, entry.description).shortText}</option>)}
             </select>
           </label>
         )}
 
-        {action === 'added' && (
-          <label>Kodetyp
-            <select aria-label="Kodetyp" value={type} onChange={(event) => setType(event.target.value as CodingEntryType)}>
-              <option value="HD">Hauptdiagnose (ICD)</option>
-              <option value="ND">Nebendiagnose (ICD)</option>
-              <option value="OPS">Prozedur (OPS)</option>
-            </select>
-          </label>
-        )}
+        {action === 'added' && <fieldset className="coding-type-choice">
+          <legend>Was möchtest du aus dem Dokument kodieren?</legend>
+          {([['HD', 'Hauptdiagnose (ICD)'], ['ND', 'Nebendiagnose (ICD)'], ['OPS', 'Prozedur (OPS)']] as Array<[CodingEntryType, string]>).map(([value, label]) => <label className={type === value ? 'active' : ''} key={value}>
+            <input type="radio" name="document-code-type" value={value} checked={type === value} onChange={() => {
+              setType(value)
+              setCode('')
+              setDescription('')
+              setError('')
+            }} />
+            <span>{label}</span>
+          </label>)}
+        </fieldset>}
 
         {action !== 'deleted' ? (
           <div className="coding-entry-fields">
-            <label>ICD- oder OPS-Kode
-              <input aria-label="ICD- oder OPS-Kode" value={code} onChange={(event) => setCode(event.target.value)} placeholder={type === 'OPS' ? 'z. B. 1-620.0' : 'z. B. J18.9'} autoComplete="off" />
+            <CodeCatalogSearch kind={catalogKind} value={code} fallbackText={description} onSelect={(nextCode, shortText) => {
+              setCode(nextCode)
+              setDescription(shortText)
+            }} />
+            <label>Katalogtext / Arbeitsbeschreibung
+              <textarea aria-label="Beschreibung" rows={2} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Wird bei der Auswahl aus dem Katalog übernommen" />
             </label>
-            <label>Beschreibung <span>(optional)</span>
-              <textarea aria-label="Beschreibung" rows={3} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Kurze fallbezogene Einordnung" />
-            </label>
+            {effectiveType === 'OPS' && <div className="ops-format-help">
+              <strong>OPS wird in getrennten Feldern erfasst</strong>
+              <small>Kode, Leistungsdatum und Uhrzeit nicht in ein gemeinsames Textfeld schreiben. Datum und Uhrzeit sind aus dem zugeordneten Ereignis vorausgefüllt und können geprüft werden.</small>
+            </div>}
             <div className="coding-parameter-grid">
               <label>Ereignisbezug
                 <select aria-label="Ereignisbezug" value={treatmentEventId} onChange={(event) => {
@@ -199,10 +211,10 @@ export function CodingEntryDrawer({ document, codingCase, entries, running, onCl
               <label>Fachabteilung
                 <input aria-label="Fachabteilung" value={department} onChange={(event) => setDepartment(event.target.value)} />
               </label>
-              <label>Leistungsdatum
+              <label>{effectiveType === 'OPS' ? 'OPS-Leistungsdatum' : 'Diagnose-Bezugsdatum'}
                 <input aria-label="Leistungsdatum" type="date" value={serviceDate} min={codingCase.admissionDate} max={codingCase.dischargeDate} onChange={(event) => setServiceDate(event.target.value)} />
               </label>
-              {type === 'OPS' && <label>Uhrzeit
+              {effectiveType === 'OPS' && <label>OPS-Uhrzeit
                 <input aria-label="Leistungsuhrzeit" type="time" value={serviceTime} onChange={(event) => setServiceTime(event.target.value)} />
               </label>}
               <label>Enddatum <span>(optional)</span>
@@ -211,7 +223,7 @@ export function CodingEntryDrawer({ document, codingCase, entries, running, onCl
               <label>Seitenlokalisation <span>(kodeabhängig)</span>
                 <select aria-label="Seitenlokalisation" value={laterality} onChange={(event) => setLaterality(event.target.value as NonNullable<CodingEntry['laterality']>)}><option value="keine">Keine</option><option value="links">Links</option><option value="rechts">Rechts</option><option value="beidseits">Beidseits</option></select>
               </label>
-              {type === 'OPS' && <label>Anzahl
+              {effectiveType === 'OPS' && <label>Anzahl
                 <input aria-label="Anzahl" type="number" min="1" value={quantity} onChange={(event) => setQuantity(Math.max(1, Number(event.target.value)))} />
               </label>}
               <label>Prüfstatus
@@ -220,7 +232,7 @@ export function CodingEntryDrawer({ document, codingCase, entries, running, onCl
             </div>
           </div>
         ) : targetEntry ? (
-          <div className="coding-delete-preview"><Trash2 aria-hidden="true" /><span><strong>{targetEntry.type} · {targetEntry.code}</strong><small>{targetEntry.description}</small><span>Bleibt als gelöscht in der KIS-Übergabe und Historie sichtbar.</span></span></div>
+          <div className="coding-delete-preview"><Trash2 aria-hidden="true" /><span><strong>{targetEntry.type} · {targetEntry.code}</strong><CatalogCodeText compact kind={targetEntry.type === 'OPS' ? 'OPS' : 'ICD'} code={targetEntry.code} fallbackText={targetEntry.description} /><span>Bleibt als gelöscht in der KIS-Übergabe und Historie sichtbar.</span></span></div>
         ) : null}
 
         <div className="coding-iteration-preview">

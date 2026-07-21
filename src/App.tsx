@@ -43,7 +43,12 @@ export default function App() {
   }
 
   const openBatchCase = (record: BatchCaseRecord) => {
-    const existing = data.cases.find((codingCase) => codingCase.caseNumber === record.caseNumber)
+    const existing = data.cases.find((codingCase) => (
+      codingCase.caseNumber === record.caseNumber
+      && codingCase.hospitalId === record.hospitalId
+      && codingCase.siteId === record.siteId
+      && codingCase.year === record.year
+    ))
     if (existing) {
       setData((current) => ({ ...current, currentCaseId: existing.id }))
       setView(existing.intakeConfirmed ? 'case' : 'intake')
@@ -102,7 +107,7 @@ export default function App() {
       <header className="app-header">
         <button className="brand" type="button" onClick={goToFallHome}>
           <span className="brand-mark"><Route aria-hidden="true" /></span>
-          <span>Kodierpfad <small>Version 27 · Hypothesenarbeitsplatz</small></span>
+          <span>Kodierpfad <small>Version 28 · Hypothesenarbeitsplatz</small></span>
         </button>
         <nav className="main-nav" aria-label="Hauptnavigation">
           <button className={['worklist', 'start', 'intake', 'case'].includes(view) ? 'active' : ''} type="button" onClick={goToFallHome}>

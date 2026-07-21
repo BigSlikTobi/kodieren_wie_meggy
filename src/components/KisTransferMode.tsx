@@ -1,18 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, Check, CheckCircle2, ClipboardCopy, Database, Info, Pencil, Send } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { ArrowLeft, CheckCircle2, ClipboardCopy, Database, Info, Pencil, Send } from 'lucide-react'
 import type { CodingCase, CodingEntry, TechnicalCaseValue } from '../types'
 import './KisTransferMode.css'
 
 export interface KisTransferModeProps {
   codingCase: CodingCase
-  onConfirm: (completedRowIds: string[]) => void | Promise<void>
+  onConfirm: () => void | Promise<void>
   onBack?: () => void
   onEditCodingEntry?: (entryId: string) => void
   onEditTechnicalValue?: (valueId: string) => void
   onOpenGrouperInputs?: () => void
-  initialCompletedRowIds?: string[]
   confirming?: boolean
-  onProgressChange?: (completed: number, total: number) => void
 }
 
 type TransferAction = 'add' | 'change' | 'remove' | 'check'
@@ -47,40 +45,15 @@ export function KisTransferMode({
   onEditCodingEntry,
   onEditTechnicalValue,
   onOpenGrouperInputs,
-  initialCompletedRowIds = [],
   confirming,
-  onProgressChange,
 }: KisTransferModeProps) {
   const rows = useMemo(() => buildTransferRows(codingCase), [codingCase])
-  const rowSignature = rows.map((row) => row.id).join('|')
-  const initialSignature = initialCompletedRowIds.join('|')
-  const [completedRows, setCompletedRows] = useState<Set<string>>(() => new Set(initialCompletedRowIds))
   const [copied, setCopied] = useState<string>()
   const [localConfirming, setLocalConfirming] = useState(false)
   const currentRun = codingCase.grouperRuns.at(-1)
 
-  useEffect(() => {
-    const available = new Set(rows.map((row) => row.id))
-    setCompletedRows(new Set(initialCompletedRowIds.filter((id) => available.has(id))))
-  }, [codingCase.id, initialSignature, rowSignature])
-
-  useEffect(() => {
-    onProgressChange?.(completedRows.size, rows.length)
-  }, [completedRows, onProgressChange, rows.length])
-
   const total = rows.length
-  const completed = completedRows.size
-  const allCompleted = total > 0 && completed === total
   const busy = confirming ?? localConfirming
-
-  const toggleCompleted = (rowId: string, checked: boolean) => {
-    setCompletedRows((current) => {
-      const next = new Set(current)
-      if (checked) next.add(rowId)
-      else next.delete(rowId)
-      return next
-    })
-  }
 
   const copyRows = async () => {
     await copyToClipboard(rows.map(formatRowForClipboard).join('\n'))
@@ -93,10 +66,10 @@ export function KisTransferMode({
   }
 
   const confirm = async () => {
-    if (!allCompleted || busy) return
+    if (!rows.length || busy) return
     setLocalConfirming(true)
     try {
-      await onConfirm(rows.map((row) => row.id))
+      await onConfirm()
     } finally {
       setLocalConfirming(false)
     }
@@ -119,10 +92,9 @@ export function KisTransferMode({
 
       <div className="kis-transfer-mode__toolbar">
         <div className="kis-transfer-mode__progress-copy">
-          <strong>{completed} von {total} erledigt</strong>
-          <span>{allCompleted ? 'Bereit zum Fallabschluss' : 'Zeilen nach der Eingabe im KIS bestätigen'}</span>
+          <strong>{total} {total === 1 ? 'Änderung' : 'Änderungen'} für die KIS-Übernahme</strong>
+          <span>Alle Positionen werden mit einem Klick gemeinsam bestätigt.</span>
         </div>
-        <progress aria-label={`${completed} von ${total} KIS-Einträgen erledigt`} max={Math.max(total, 1)} value={completed} />
         <div className="kis-transfer-mode__toolbar-actions">
           {onOpenGrouperInputs && <button type="button" onClick={onOpenGrouperInputs}><Database aria-hidden="true" /> Grouper-Eingaben</button>}
           <button type="button" onClick={() => void copyRows()} disabled={!rows.length}><ClipboardCopy aria-hidden="true" /> {copied === 'all' ? 'Liste kopiert' : 'Liste kopieren'}</button>
@@ -136,13 +108,10 @@ export function KisTransferMode({
           <span role="columnheader">Kode und Bezeichnung</span>
           <span role="columnheader">Grouper-Angaben</span>
           <span role="columnheader">Quelle</span>
-          <span role="columnheader">KIS</span>
         </div>
 
-        {rows.map((row) => {
-          const checked = completedRows.has(row.id)
-          return (
-            <div className={`kis-transfer-mode__row ${checked ? 'is-completed' : ''}`} role="row" key={row.id}>
+        {rows.map((row) => (
+            <div className="kis-transfer-mode__row" role="row" key={row.id}>
               <span role="cell"><b className={`kis-transfer-mode__action action-${row.action}`}>{actionLabels[row.action]}</b></span>
               <span role="cell"><b className={`kis-transfer-mode__kind kind-${row.kind.toLowerCase()}`}>{row.kind}</b></span>
               <span className="kis-transfer-mode__code" role="cell"><code>{row.code}</code><strong>{row.description}</strong></span>
@@ -158,24 +127,19 @@ export function KisTransferMode({
                 {row.entryId && onEditCodingEntry && <button type="button" onClick={() => onEditCodingEntry(row.entryId!)}><Pencil aria-hidden="true" /> Korrigieren</button>}
                 {row.technicalValueId && onEditTechnicalValue && <button type="button" onClick={() => onEditTechnicalValue(row.technicalValueId!)}><Pencil aria-hidden="true" /> Korrigieren</button>}
               </span></span>
-              <label className="kis-transfer-mode__check" role="cell">
-                <input type="checkbox" checked={checked} onChange={(event) => toggleCompleted(row.id, event.target.checked)} />
-                <span>{checked && <Check aria-hidden="true" />}<b>im KIS erledigt</b></span>
-              </label>
             </div>
-          )
-        })}
+        ))}
 
         {!rows.length && <div className="kis-transfer-mode__empty"><CheckCircle2 aria-hidden="true" /><span><strong>Keine Übertragungszeilen vorhanden</strong><small>Kodieränderungen oder Beatmungswerte fehlen.</small></span></div>}
       </div>
 
-      <div className="kis-transfer-mode__interface-note"><Info aria-hidden="true" /><span><strong>Keine Schnittstelle zum Primärsystem</strong><small>Jede Zeile im KIS eintragen oder abgleichen und anschließend hier bestätigen.</small></span></div>
+      <div className="kis-transfer-mode__interface-note"><Info aria-hidden="true" /><span><strong>Keine Schnittstelle zum Primärsystem</strong><small>Übertrage die angezeigte Liste vollständig in das KIS. Ein Klick bestätigt anschließend alle Positionen gemeinsam, dokumentiert den Abgleich und schließt den Fall ab.</small></span></div>
 
       <footer className="kis-transfer-mode__footer">
-        <span aria-live="polite">{allCompleted ? 'Alle KIS-Einträge bestätigt.' : `${total - completed} offen`}</span>
-        <button className="kis-transfer-mode__confirm" type="button" disabled={!allCompleted || busy} onClick={() => void confirm()}>
+        <span aria-live="polite">Alle {total} Positionen werden gemeinsam bestätigt.</span>
+        <button className="kis-transfer-mode__confirm" type="button" disabled={!rows.length || busy} onClick={() => void confirm()}>
           {busy ? <span className="kis-transfer-mode__spinner" aria-hidden="true" /> : <Send aria-hidden="true" />}
-          {busy ? 'Wird abgeschlossen …' : 'KIS-Übernahme bestätigen und Fall abschließen'}
+          <span><strong>{busy ? 'Wird abgeschlossen …' : 'Alle Änderungen als im KIS übernommen bestätigen'}</strong>{!busy && <small>und Fall abschließen</small>}</span>
         </button>
       </footer>
     </section>

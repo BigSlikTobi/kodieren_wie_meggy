@@ -8,7 +8,7 @@ import { KisTransferMode } from './KisTransferMode'
 describe('KisTransferMode', () => {
   afterEach(() => cleanup())
 
-  it('schaltet den Fallabschluss erst nach bestätigten KIS-Zeilen frei', async () => {
+  it('bestätigt alle plausiblen KIS-Änderungen gesammelt', async () => {
     const codingCase = createDemoCase({
       caseNumber: 'P-2026-009999',
       hospitalId: 'h-marien',
@@ -44,18 +44,38 @@ describe('KisTransferMode', () => {
 
     render(<KisTransferMode codingCase={codingCase} onConfirm={onConfirm} />)
 
-    const finalAction = screen.getByRole('button', { name: /KIS-Übernahme bestätigen und Fall abschließen/i })
-    expect(finalAction).toBeDisabled()
+    const finalAction = screen.getByRole('button', { name: /Alle Änderungen als im KIS übernommen bestätigen/i })
+    expect(finalAction).toBeEnabled()
     expect(screen.getAllByText('Beatmung').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Ändern').length).toBeGreaterThan(0)
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(screen.getByText(/Alle Positionen werden mit einem Klick gemeinsam bestätigt/i)).toBeInTheDocument()
 
-    for (const checkbox of screen.getAllByRole('checkbox', { name: /im KIS erledigt/i })) {
-      await user.click(checkbox)
-    }
-
-    expect(finalAction).toBeEnabled()
     await user.click(finalAction)
     expect(onConfirm).toHaveBeenCalledTimes(1)
-    expect(onConfirm.mock.calls[0][0]).toHaveLength(2)
+    expect(onConfirm).toHaveBeenCalledWith()
+  })
+
+  it('bietet keine ungespeicherten Einzelbestätigungen oder Ausnahmen an', () => {
+    const codingCase = createDemoCase({
+      caseNumber: 'P-2026-009998',
+      hospitalId: 'h-marien',
+      siteId: 'marien-mitte',
+      year: 2026,
+      age: 67,
+      stayDays: 12,
+      careForm: 'Normal- und Intensivstation',
+      scenario: 'pulmo-onko',
+      files: [],
+    })
+    codingCase.codingEntries[0] = { ...codingCase.codingEntries[0], change: 'changed' }
+    codingCase.codingEntries[1] = { ...codingCase.codingEntries[1], change: 'added' }
+    const onConfirm = vi.fn()
+    render(<KisTransferMode codingCase={codingCase} onConfirm={onConfirm} />)
+
+    expect(screen.getAllByRole('row')).toHaveLength(3)
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Ausgewählte Änderungen/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Alle Änderungen als im KIS übernommen bestätigen/i })).toBeEnabled()
   })
 })

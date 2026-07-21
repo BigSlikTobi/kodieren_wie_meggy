@@ -1,10 +1,40 @@
 import { Check, FileCode2, FileUp, MessageCircle, RotateCw, Stethoscope, UserRoundCheck, X } from 'lucide-react'
 import type { CaseDecision, CodingEntry } from '../types'
 
-interface RouteRecommendation {
+export interface RouteRecommendation {
   kind: 'self' | 'wiki' | 'consult'
   title: string
   reason: string
+}
+
+export function getCollaborationRoute(
+  decision: Pick<CaseDecision, 'knowledge' | 'groupingRelevance' | 'status'>,
+): RouteRecommendation {
+  if (decision.knowledge === 'fremd') {
+    return {
+      kind: 'consult',
+      title: 'Fachliche Entscheidung einholen',
+      reason: 'Der Sachverhalt liegt außerhalb der eigenen Kenntnisse. Ein Kodierkonsil soll die Entscheidung fachlich absichern.',
+    }
+  }
+
+  if (decision.knowledge === 'unsicher') {
+    return {
+      kind: 'wiki',
+      title: 'Kodierwiki zuerst',
+      reason: decision.groupingRelevance === 'relevant'
+        ? 'Zuerst Regel und Katalogkontext klären. Wegen der DRG-Relevanz wird danach eine fachliche Zweitmeinung angeboten.'
+        : 'Regel und Katalogkontext klären, danach die Kodierung selbst entscheiden.',
+    }
+  }
+
+  return {
+    kind: 'self',
+    title: 'Selbst entscheiden',
+    reason: decision.status === 'widersprüchlich'
+      ? 'Die eigenen Kenntnisse reichen aus, um den Widerspruch anhand der Quelle und der Regelwerke zu klären. Ein Konsil bleibt optional.'
+      : 'Der Sachverhalt ist vertraut und kann anhand der Quelle und der Regelwerke selbst validiert werden.',
+  }
 }
 
 interface DecisionCodingWorkspaceProps {
@@ -57,6 +87,23 @@ export function DecisionCodingWorkspace({
   const activeEntries = entries.filter((entry) => entry.active)
   const precodeEntries = activeEntries.filter((entry) => entry.origin === 'vorkodierung')
   const validatedEntries = activeEntries.filter((entry) => entry.reviewStatus === 'belegt')
+  const secondOpinionPath = decision.knowledge === 'unsicher' && decision.groupingRelevance === 'relevant' && wikiStarted
+  const consultationFinished = consultationStatus === 'abgeschlossen'
+  const effectiveRoute: RouteRecommendation = secondOpinionPath
+    ? consultationFinished
+      ? {
+          kind: 'self',
+          title: 'Konsilergebnis in die Kodierung übernehmen',
+          reason: 'Die fachliche Zweitmeinung liegt vor. Kode und Quelle jetzt prüfen und die Kodierentscheidung abschließen.',
+        }
+      : {
+          kind: 'consult',
+          title: consultationStatus ? 'Zweitmeinung angefragt' : 'Zweitmeinung empfohlen',
+          reason: consultationStatus
+            ? 'Das Kodierwiki wurde genutzt. Die gruppierungsrelevante Frage liegt jetzt im Kodierkonsil.'
+            : 'Das Kodierwiki hat Regel und Katalogkontext geklärt. Wegen der DRG-Relevanz ist eine fachliche Zweitmeinung der nächste sichere Schritt.',
+        }
+    : route
 
   return (
     <section className="decision-coding-workspace" aria-label={`Kodierentscheidung ${decision.title}`}>
@@ -66,11 +113,11 @@ export function DecisionCodingWorkspace({
           <strong>{activeEntries.length ? `${activeEntries.length} passende${activeEntries.length === 1 ? 'r' : ''} Kode${activeEntries.length === 1 ? '' : 's'} vorhanden` : 'Noch keine passende Kodierung'}</strong>
           <small>{validatedEntries.length} validiert · {activeEntries.length - validatedEntries.length} offen</small>
         </div>
-        <label>Eigene Fachkenntnis
+        <label>Wie möchtest Du entscheiden?
           <select aria-label={`Fachkenntnis für ${decision.title}`} value={decision.knowledge} onChange={(event) => onKnowledgeChange(event.target.value as CaseDecision['knowledge'])}>
-            <option value="vertraut">Fachgebiet vertraut</option>
-            <option value="unsicher">Grundkenntnisse, aber unsicher</option>
-            <option value="fremd">Nicht mein Fachgebiet</option>
+            <option value="vertraut">Ich kann selbst entscheiden</option>
+            <option value="unsicher">Ich brauche Regelhilfe</option>
+            <option value="fremd">Ich brauche eine fachliche Entscheidung</option>
           </select>
         </label>
       </div>
@@ -85,14 +132,14 @@ export function DecisionCodingWorkspace({
         )) : <div className="decision-code-empty"><FileCode2 aria-hidden="true" /><span><strong>Kein Kode aus Vorkodierung, Dokument oder Fachentscheidung</strong><small>Die Kodierfachkraft kann direkt starten oder Hilfe hinzuziehen.</small></span></div>}
       </div>
 
-      <details className={`decision-route-recommendation route-${route.kind}`}>
-        <summary>{route.kind === 'consult' ? <Stethoscope aria-hidden="true" /> : route.kind === 'wiki' ? <MessageCircle aria-hidden="true" /> : <UserRoundCheck aria-hidden="true" />}<span><small>Empfohlener Weg</small><strong>{route.title}</strong></span></summary>
-        <p>{route.reason}</p>
+      <details className={`decision-route-recommendation route-${effectiveRoute.kind}`}>
+        <summary>{effectiveRoute.kind === 'consult' ? <Stethoscope aria-hidden="true" /> : effectiveRoute.kind === 'wiki' ? <MessageCircle aria-hidden="true" /> : <UserRoundCheck aria-hidden="true" />}<span><small>Empfohlener Weg</small><strong>{effectiveRoute.title}</strong></span></summary>
+        <p>{effectiveRoute.reason}</p>
       </details>
 
       <div className="decision-route-grid" aria-label="Direkte Bearbeitungswege">
-        <button className={`decision-route-action ${route.kind === 'self' ? 'recommended' : ''}`} type="button" onClick={onManualCoding}>
-          <FileCode2 aria-hidden="true" /><span><strong>Manuell kodieren</strong><small>ICD oder OPS durch KFK ergänzen, ändern oder löschen</small></span>
+        <button className={`decision-route-action ${effectiveRoute.kind === 'self' ? 'recommended' : ''}`} type="button" onClick={onManualCoding}>
+          <FileCode2 aria-hidden="true" /><span><strong>Ich kodiere selbst</strong><small>ICD oder OPS ergänzen, ändern oder löschen</small></span>
         </button>
         <button className={`decision-route-action ${precodeEntries.length ? '' : 'unavailable'}`} type="button" disabled={!precodeEntries.length || running} onClick={onValidatePrecode}>
           <Check aria-hidden="true" /><span><strong>{precodeEntries.length ? 'Vorkodierung validieren' : 'Keine Vorkodierung'}</strong><small>{precodeEntries.length ? `${precodeEntries.length} vorhandene Kodes prüfen und abschließen` : 'Für diesen Sachverhalt ist nichts vorhanden'}</small></span>
@@ -100,11 +147,11 @@ export function DecisionCodingWorkspace({
       </div>
 
       <div className="decision-help-actions" aria-label="Unterstützung für die Kodierentscheidung">
-        <button className={route.kind === 'wiki' ? 'recommended' : ''} type="button" onClick={onWiki}>
-          <MessageCircle aria-hidden="true" /><span><strong>Kodierwiki fragen</strong><small>{wikiStarted ? 'Dialog begonnen' : 'Regeln und Systematik klären'}</small></span>
+        <button className={effectiveRoute.kind === 'wiki' ? 'recommended' : ''} type="button" onClick={onWiki}>
+          <MessageCircle aria-hidden="true" /><span><strong>{wikiStarted ? 'Kodierwiki weiterfragen' : 'Kodierwiki fragen'}</strong><small>{wikiStarted ? 'Regelhilfe genutzt' : 'Regeln und Systematik klären'}</small></span>
         </button>
-        <button className={route.kind === 'consult' ? 'recommended' : ''} type="button" onClick={onConsult}>
-          <Stethoscope aria-hidden="true" /><span><strong>Kodierkonsil anfordern</strong><small>{consultationStatus ? `Konsil ${consultationStatus}` : 'Menschliche Fachentscheidung'}</small></span>
+        <button className={effectiveRoute.kind === 'consult' ? 'recommended' : ''} type="button" onClick={onConsult}>
+          <Stethoscope aria-hidden="true" /><span><strong>{secondOpinionPath ? 'Zweitmeinung im Konsil' : 'Kodierkonsil anfordern'}</strong><small>{consultationStatus ? `Konsil ${consultationStatus}` : secondOpinionPath ? 'Nach Kodierwiki empfohlen' : 'Menschliche Fachentscheidung'}</small></span>
         </button>
       </div>
 
